@@ -21,7 +21,8 @@ export function Navbar() {
 
   const navLinks = [
     { name: 'Home', path: '/', isSection: false },
-    { name: 'Drug Library', path: '/drugs', isSection: false },
+    { name: 'About', path: '/about', isSection: false },
+    { name: 'Demo', path: '/demo', isSection: false },
     { name: 'How It Works', path: '/#how-it-works', isSection: true },
     { name: 'FAQ', path: '/#faq', isSection: true },
   ]

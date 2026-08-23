@@ -1,4 +1,4 @@
-import { FileText, Plus, Brain } from 'lucide-react'
+import { FileText, Plus, Brain, Info, MonitorPlay } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useChat } from '../../hooks/useChat'
 import { useConversations } from '../../hooks/useConversations'
@@ -64,6 +64,26 @@ export function Sidebar({ onClose }: SidebarProps) {
           >
             <Brain className="h-5 w-5" />
           </Link>
+
+          <Link
+            to="/about"
+            onClick={onClose}
+            className={`flex h-9 w-9 items-center justify-center rounded-2xl transition-colors hover:bg-surface-highlight ${location.pathname === '/about' ? 'bg-surface-highlight text-primary' : 'text-fg-muted hover:text-primary'}`}
+            aria-label="About"
+            title="About"
+          >
+            <Info className="h-5 w-5" />
+          </Link>
+
+          <Link
+            to="/demo"
+            onClick={onClose}
+            className={`flex h-9 w-9 items-center justify-center rounded-2xl transition-colors hover:bg-surface-highlight ${location.pathname === '/demo' ? 'bg-surface-highlight text-primary' : 'text-fg-muted hover:text-primary'}`}
+            aria-label="Demo"
+            title="Demo"
+          >
+            <MonitorPlay className="h-5 w-5" />
+          </Link>
         </div>
         <div className="mt-4 flex-1" />
         <ThemeToggle size="sm" />
@@ -104,6 +124,24 @@ export function Sidebar({ onClose }: SidebarProps) {
         >
           <Brain className="h-4 w-4 shrink-0 text-accent" />
           <span>Memory</span>
+        </Link>
+
+        <Link
+          to="/about"
+          onClick={onClose}
+          className={`flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold transition-colors ${location.pathname === '/about' ? 'bg-surface-highlight text-primary' : 'text-fg hover:bg-surface-highlight'}`}
+        >
+          <Info className="h-4 w-4 shrink-0 text-accent" />
+          <span>About</span>
+        </Link>
+
+        <Link
+          to="/demo"
+          onClick={onClose}
+          className={`flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold transition-colors ${location.pathname === '/demo' ? 'bg-surface-highlight text-primary' : 'text-fg hover:bg-surface-highlight'}`}
+        >
+          <MonitorPlay className="h-4 w-4 shrink-0 text-accent" />
+          <span>Demo</span>
         </Link>
       </div>
 

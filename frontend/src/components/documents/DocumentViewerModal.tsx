@@ -1,14 +1,19 @@
 import { useEffect, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Loader2, FileText, Maximize2, Minimize2, Download, BookOpen, Layers } from 'lucide-react'
+import { X, Loader2, FileText, Maximize2, Minimize2, BookOpen, Layers } from 'lucide-react'
 import type { Document } from '../../types/document'
-import { fetchDocumentFile, fetchDocumentChunks, getDocumentViewUrl, type DocumentChunkRecord } from '../../api/viewer'
-import * as mammoth from 'mammoth'
 
 interface DocumentViewerModalProps {
   document: Document | null
   open: boolean
   onClose: () => void
+}
+
+interface DocumentChunkRecord {
+  chunk_id: string
+  page_no: number
+  section: string
+  text: string
 }
 
 function getFileType(filename?: string): 'pdf' | 'docx' | 'doc' | 'image' | 'unknown' {
@@ -25,8 +30,6 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [html, setHtml] = useState<string | null>(null)
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
-  const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [docChunks, setDocChunks] = useState<DocumentChunkRecord[]>([])
   const [selectedPage, setSelectedPage] = useState<number>(1)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -40,84 +43,46 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
   useEffect(() => {
     if (!open || !document) return
 
-    let cancelled = false
-    let objectUrl: string | null = null
-
     setLoading(true)
     setError(null)
     setHtml(null)
-    setPdfUrl(null)
-    setImageUrl(null)
     setDocChunks([])
     setSelectedPage(1)
 
     const load = async () => {
       try {
-        if (fileType === 'pdf') {
-          const blob = await fetchDocumentFile(document.id)
-          if (cancelled) return
-          objectUrl = URL.createObjectURL(blob)
-          setPdfUrl(objectUrl)
-        } else if (fileType === 'image') {
-          const blob = await fetchDocumentFile(document.id)
-          if (cancelled) return
-          objectUrl = URL.createObjectURL(blob)
-          setImageUrl(objectUrl)
-          // Also fetch extracted OCR text chunks for evidence reading below
-          const chunks = await fetchDocumentChunks(document.id)
-          if (chunks && chunks.length > 0 && !cancelled) {
-            setDocChunks(chunks)
+        if (document.html) {
+          setHtml(document.html)
+        } else if (document.source) {
+          const chunks: DocumentChunkRecord[] = []
+          const pageCount = document.pageCount || 1
+          const pageSize = Math.ceil(document.source.length / pageCount)
+          for (let p = 0; p < pageCount; p++) {
+            const start = p * pageSize
+            const text = document.source.slice(start, start + pageSize).trim()
+            if (text) {
+              chunks.push({
+                chunk_id: `p${p + 1}`,
+                page_no: p + 1,
+                section: 'Document text',
+                text,
+              })
+            }
           }
+          setDocChunks(chunks)
         } else {
-          // Attempt mammoth conversion first
-          let mammothSucceeded = false
-          try {
-            const blob = await fetchDocumentFile(document.id)
-            if (!cancelled) {
-              const arrayBuffer = await blob.arrayBuffer()
-              const result = await mammoth.convertToHtml({ arrayBuffer })
-              if (result.value && result.value.trim().length > 0) {
-                setHtml(result.value)
-                mammothSucceeded = true
-              }
-            }
-          } catch {
-            mammothSucceeded = false
-          }
-
-          // If mammoth couldn't convert, fetch structured extracted chunks from DB
-          if (!mammothSucceeded && !cancelled) {
-            const chunks = await fetchDocumentChunks(document.id)
-            if (chunks && chunks.length > 0) {
-              setDocChunks(chunks)
-            } else {
-              setError('Preview is not available for this file. Please download the document.')
-            }
-          }
+          setError('No extracted text is available for this file.')
         }
       } catch (err: unknown) {
-        if (!cancelled) {
-          const chunks = await fetchDocumentChunks(document.id)
-          if (chunks && chunks.length > 0) {
-            setDocChunks(chunks)
-          } else {
-            setError(err instanceof Error ? err.message : 'Failed to load document')
-          }
-        }
+        setError(err instanceof Error ? err.message : 'Failed to load document preview.')
       } finally {
-        if (!cancelled) setLoading(false)
+        setLoading(false)
       }
     }
 
     load()
+  }, [open, document])
 
-    return () => {
-      cancelled = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [open, document, fileType])
-
-  // Group chunks by page number
   const pagesMap = useMemo(() => {
     const map = new Map<number, DocumentChunkRecord[]>()
     for (const chunk of docChunks) {
@@ -171,17 +136,6 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
           </div>
 
           <div className="flex items-center gap-1.5">
-            <a
-              href={getDocumentViewUrl(document.id)}
-              download={document.filename || docName}
-              target="_blank"
-              rel="noreferrer"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-highlight hover:text-fg"
-              aria-label="Download original document"
-              title="Download original document"
-            >
-              <Download className="h-4 w-4" />
-            </a>
             <button
               type="button"
               onClick={() => setIsFullscreen((v) => !v)}
@@ -208,27 +162,6 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
             <div className="flex h-full flex-col items-center justify-center gap-2.5 text-fg-muted">
               <Loader2 className="h-7 w-7 animate-spin text-primary" />
               <span className="text-xs font-semibold text-fg">Loading document…</span>
-              <span className="text-[11px] text-fg-muted">Parsing {fileType.toUpperCase()} file contents</span>
-            </div>
-          )}
-
-          {/* PDF Viewer */}
-          {!loading && !error && fileType === 'pdf' && pdfUrl && (
-            <iframe
-              title={docName}
-              src={pdfUrl}
-              className="h-full w-full rounded-2xl border border-border bg-white shadow-xs"
-            />
-          )}
-
-          {/* Image Viewer */}
-          {!loading && !error && fileType === 'image' && imageUrl && (
-            <div className="flex h-full w-full flex-col items-center justify-center overflow-auto rounded-2xl border border-border bg-black/5 p-4 shadow-xs">
-              <img
-                src={imageUrl}
-                alt={docName}
-                className="max-h-full max-w-full rounded-xl object-contain shadow-md"
-              />
             </div>
           )}
 
@@ -248,10 +181,9 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
             </div>
           )}
 
-          {/* Structured Document Pages & Sections View (for DOC / DOCX fallback) */}
-          {!loading && !html && !pdfUrl && docChunks.length > 0 && (
+          {/* Structured Document Pages View */}
+          {!loading && !html && !error && docChunks.length > 0 && (
             <div className="h-full w-full flex flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xs">
-              {/* Page Navigator Pills */}
               {availablePages.length > 1 && (
                 <div className="flex items-center gap-1.5 border-b border-border/80 bg-surface-warm/40 px-4 py-2.5 overflow-x-auto shrink-0">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-fg-muted mr-1.5 flex items-center gap-1">
@@ -278,7 +210,6 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
                 </div>
               )}
 
-              {/* Page Content Body */}
               <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-white text-black">
                 <div className="max-w-3xl mx-auto space-y-6">
                   {(pagesMap.get(selectedPage) || docChunks).map((chunk, idx) => (
@@ -289,7 +220,7 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
                       <div className="flex items-center justify-between border-b border-gray-200/80 pb-2 mb-3">
                         <div className="flex items-center gap-2">
                           <BookOpen className="h-4 w-4 text-primary" />
-                          <span className="font-bold text-xs text-primary">{chunk.section || 'Document Section'}</span>
+                          <span className="font-bold text-xs text-primary">{chunk.section}</span>
                         </div>
                         <span className="text-[10px] font-semibold text-gray-500">Page {chunk.page_no}</span>
                       </div>
@@ -303,17 +234,9 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
             </div>
           )}
 
-          {!loading && error && docChunks.length === 0 && !html && !pdfUrl && (
+          {!loading && error && (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-fg-muted p-6">
               <p className="max-w-md text-sm font-semibold text-danger">{error}</p>
-              <a
-                href={getDocumentViewUrl(document.id)}
-                download={document.filename || docName}
-                className="mt-2 inline-flex items-center gap-1.5 rounded-pill bg-primary px-4 py-2 text-xs font-semibold text-white hover:bg-primary-hover shadow-xs"
-              >
-                <Download className="h-3.5 w-3.5" />
-                <span>Download Document</span>
-              </a>
             </div>
           )}
         </div>

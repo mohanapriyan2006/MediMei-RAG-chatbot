@@ -8,6 +8,7 @@ import { TaskProvider } from './contexts/TaskContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { UIProvider } from './contexts/UIContext'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
+import { PreviewBanner } from './components/common/PreviewBanner'
 import HomePage from './pages/HomePage'
 import ChatPage from './pages/ChatPage'
 import DocumentsPage from './pages/DocumentsPage'
@@ -15,6 +16,8 @@ import ComparePage from './pages/ComparePage'
 import SignInPage from './pages/SignInPage'
 import SignUpPage from './pages/SignUpPage'
 import MemoryPage from './pages/MemoryPage'
+import AboutPage from './pages/AboutPage'
+import DemoResourcesPage from './pages/DemoResourcesPage'
 import { useTheme } from './hooks/useTheme'
 
 
@@ -57,6 +60,7 @@ function App() {
               <ConversationProvider>
                 <DocumentProvider>
                   <ChatProvider>
+                    <PreviewBanner />
                     <Routes>
                       {/* Public Landing Page */}
                       <Route path="/home" element={<HomePage />} />
@@ -130,6 +134,10 @@ function App() {
                       <Route path="/login" element={<SignInPage />} />
                       <Route path="/signup" element={<SignUpPage />} />
                       <Route path="/register" element={<SignUpPage />} />
+
+                      {/* Public info pages */}
+                      <Route path="/about" element={<AboutPage />} />
+                      <Route path="/demo" element={<DemoResourcesPage />} />
 
                       {/* Fallback */}
                       <Route path="*" element={<HomePage />} />

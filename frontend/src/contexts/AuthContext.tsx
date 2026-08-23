@@ -1,8 +1,16 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { loginRequest, registerRequest, getMeRequest } from '../api/auth'
 import type { UserProfile } from '../api/auth'
-import { AUTH_LOGOUT_EVENT } from '../api/client'
+import {
+  getToken as getStoredToken,
+  setToken as setStoredToken,
+  removeToken,
+  getUser as getStoredUser,
+  setUser as setStoredUser,
+  removeUser,
+  login as storeLogin,
+  register as storeRegister,
+} from '../services/authStore'
 
 interface AuthContextType {
   user: UserProfile | null
@@ -16,8 +24,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const TOKEN_KEY = 'labelproof_token'
-
 function decodeJwtExp(token: string): number | null {
   try {
     const payload = token.split('.')[1]
@@ -29,27 +35,32 @@ function decodeJwtExp(token: string): number | null {
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<UserProfile | null>(null)
-  const [token, setToken] = useState<string | null>(() => {
-    const stored = localStorage.getItem(TOKEN_KEY)
-    if (!stored) return null
-    // Drop already-expired tokens on init
-    const exp = decodeJwtExp(stored)
-    if (exp && exp * 1000 <= Date.now()) {
-      localStorage.removeItem(TOKEN_KEY)
-      return null
-    }
-    return stored
-  })
-  const [loading, setSubmitting] = useState<boolean>(true)
+  const [user, setUser] = useState<UserProfile | null>(getStoredUser)
+  const [token, setToken] = useState<string | null>(getStoredToken)
+  const [loading, setLoading] = useState<boolean>(true)
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY)
+    removeToken()
+    removeUser()
     setToken(null)
     setUser(null)
   }, [])
 
-  // Auto-logout when the JWT expires (client-side timer)
+  useEffect(() => {
+    const stored = getStoredToken()
+    if (stored) {
+      const exp = decodeJwtExp(stored)
+      if (exp && exp * 1000 <= Date.now()) {
+        logout()
+      } else {
+        setToken(stored)
+        setUser(getStoredUser())
+      }
+    }
+    setLoading(false)
+  }, [logout])
+
+  // Auto-logout when the fake token expires
   useEffect(() => {
     if (!token) return
     const exp = decodeJwtExp(token)
@@ -57,71 +68,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const msUntilExpiry = exp * 1000 - Date.now()
     if (msUntilExpiry <= 0) {
-      // Defer to avoid synchronous setState in effect
       const t = setTimeout(() => logout(), 0)
       return () => clearTimeout(t)
     }
 
-    const timer = setTimeout(() => {
-      logout()
-    }, msUntilExpiry)
-
+    const timer = setTimeout(() => logout(), msUntilExpiry)
     return () => clearTimeout(timer)
   }, [token, logout])
 
-  // Auto-logout when any API call returns 401
-  useEffect(() => {
-    const handleLogout = () => logout()
-    window.addEventListener(AUTH_LOGOUT_EVENT, handleLogout)
-    return () => window.removeEventListener(AUTH_LOGOUT_EVENT, handleLogout)
-  }, [logout])
-
-  // Restore session on mount
-  useEffect(() => {
-    const initializeAuth = async () => {
-      if (token) {
-        try {
-          const profile = await getMeRequest()
-          setUser(profile)
-        } catch (err) {
-          console.error('Failed to restore authentication session:', err)
-          logout()
-        }
-      }
-      setSubmitting(false)
-    }
-    initializeAuth()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   const login = async (email: string, password: string) => {
-    setSubmitting(true)
+    setLoading(true)
     try {
-      const res = await loginRequest(email, password)
-      localStorage.setItem(TOKEN_KEY, res.access_token)
-      setToken(res.access_token)
-
-      const profile = await getMeRequest()
-      setUser(profile)
+      const { token: newToken, user: newUser } = storeLogin(email, password)
+      setStoredToken(newToken)
+      setStoredUser(newUser)
+      setToken(newToken)
+      setUser(newUser)
     } catch (err) {
       logout()
       throw err
     } finally {
-      setSubmitting(false)
+      setLoading(false)
     }
   }
 
   const register = async (email: string, password: string) => {
-    setSubmitting(true)
+    setLoading(true)
     try {
-      await registerRequest(email, password)
+      const { token: newToken, user: newUser } = storeRegister(email, password)
+      setStoredToken(newToken)
+      setStoredUser(newUser)
+      setToken(newToken)
+      setUser(newUser)
     } finally {
-      setSubmitting(false)
+      setLoading(false)
     }
   }
 
   const updateUser = useCallback((fields: Partial<UserProfile>) => {
-    setUser((prev) => (prev ? { ...prev, ...fields } : null))
+    setUser((prev) => {
+      if (!prev) return null
+      const next = { ...prev, ...fields }
+      setStoredUser(next)
+      return next
+    })
   }, [])
 
   return (

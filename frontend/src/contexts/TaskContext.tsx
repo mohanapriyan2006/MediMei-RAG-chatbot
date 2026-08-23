@@ -1,6 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { apiFetch } from '../api/client'
 import type { TaskState, TaskType } from '../types/task'
 
 const STORAGE_KEY = 'medimei-current-task'
@@ -114,18 +113,9 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   )
 
   const cancelTask = useCallback(async () => {
-    const taskId = (typeof window !== 'undefined' && (window as unknown as Record<string, string | undefined>).__medimeiTaskId) as string | undefined
-    if (!taskId) return
-
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
       abortControllerRef.current = null
-    }
-
-    try {
-      await apiFetch<void>(`/api/v1/tasks/${taskId}/cancel`, { method: 'POST' })
-    } catch {
-      // Ignore network errors — the abort controller already stops the UI.
     }
   }, [])
 

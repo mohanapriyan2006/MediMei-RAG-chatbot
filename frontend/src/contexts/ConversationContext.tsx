@@ -1,14 +1,13 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { ConversationSummary } from '../types/chat'
 import { useAuth } from '../hooks/useAuth'
 import {
-  listSessions,
-  updateSession,
-  deleteSession,
-  toConversationSummary,
-} from '../api/sessions'
+  listConversations,
+  deleteConversation as deleteStoredConversation,
+  renameConversation as renameStoredConversation,
+} from '../services/conversationStore'
 
 interface ConversationContextValue {
   conversations: ConversationSummary[]
@@ -24,57 +23,49 @@ interface ConversationContextValue {
 export const ConversationContext = createContext<ConversationContextValue | null>(null)
 
 export function ConversationProvider({ children }: { children: ReactNode }) {
-  const [conversations, setConversations] = useState<ConversationSummary[]>([])
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
+  const [conversations, setConversationsState] = useState<ConversationSummary[]>([])
+  const [activeConversationId, setActiveConversationIdState] = useState<string | null>(null)
   const { user } = useAuth()
+
+  const setConversations = useCallback((value: React.SetStateAction<ConversationSummary[]>) => {
+    setConversationsState((prev) => {
+      const next = typeof value === 'function' ? (value as (prev: ConversationSummary[]) => ConversationSummary[])(prev) : value
+      localStorage.setItem('medimei_conversations_v1', JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  const setActiveConversationId = setActiveConversationIdState
 
   // Load conversations when user state changes
   useEffect(() => {
     if (!user) {
-      setConversations([])
-      setActiveConversationId(null)
+      setConversationsState([])
+      setActiveConversationIdState(null)
       return
     }
-
-    const load = async () => {
-      try {
-        const res = await listSessions()
-        setConversations(res.map(toConversationSummary))
-      } catch (err: unknown) {
-        toast.error(err instanceof Error ? err.message : 'Failed to load chat history')
-      }
-    }
-
-    load()
+    setConversationsState(listConversations())
   }, [user])
 
-  const selectConversation = (id: string) => setActiveConversationId(id)
+  const selectConversation = (id: string) => setActiveConversationIdState(id)
 
-  const renameConversation = async (id: string, title: string) => {
+  const renameConversation = (id: string, title: string) => {
     if (!title.trim()) return
-    try {
-      await updateSession(id, title.trim())
-      setConversations((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, title: title.trim() } : c)),
-      )
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to rename chat')
-    }
+    renameStoredConversation(id, title.trim())
+    setConversationsState((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, title: title.trim(), updatedAt: new Date().toISOString() } : c)),
+    )
   }
 
-  const deleteConversation = async (id: string) => {
-    try {
-      await deleteSession(id)
-      setConversations((prev) => prev.filter((c) => c.id !== id))
-      setActiveConversationId((prev) => (prev === id ? null : prev))
-      toast.success('Chat deleted')
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete chat')
-    }
+  const deleteConversation = (id: string) => {
+    deleteStoredConversation(id)
+    setConversationsState((prev) => prev.filter((c) => c.id !== id))
+    setActiveConversationIdState((prev) => (prev === id ? null : prev))
+    toast.success('Chat deleted')
   }
 
   const newConversation = () => {
-    setActiveConversationId(null)
+    setActiveConversationIdState(null)
   }
 
   return (
@@ -87,7 +78,7 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
         deleteConversation,
         newConversation,
         setConversations,
-        setActiveConversationId
+        setActiveConversationId,
       }}
     >
       {children}

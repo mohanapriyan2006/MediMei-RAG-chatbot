@@ -5,12 +5,12 @@ import type { Document } from '../types/document'
 import { useAuth } from '../hooks/useAuth'
 import { useTask } from '../hooks/useTask'
 import {
-  fetchDocuments,
-  uploadDocument as uploadDocumentApi,
-  getDocumentStatus,
-  deleteDocument as deleteDocumentApi,
-  updateDocument as updateDocumentApi,
-} from '../api/documents'
+  listDocuments,
+  saveDocument,
+  deleteDocument as deleteStoredDocument,
+  renameDocument as renameStoredDocument,
+} from '../services/documentStore'
+import { extractDocument } from '../services/documentExtractor'
 
 interface DocumentContextValue {
   documents: Document[]
@@ -30,54 +30,14 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const { startTask } = useTask()
 
-  const mapBackendDoc = (doc: Record<string, unknown>): Document => ({
-    id: String(doc.document_id),
-    name: String(doc.source || (doc.file_name as string).replace(/\.(pdf|docx|doc|png|jpg|jpeg|webp|bmp|tiff|tif)$/i, '').replace(/[-_]/g, ' ').trim()),
-    filename: String(doc.file_name),
-    status: doc.status === 'completed' ? 'ready' : doc.status === 'failed' ? 'failed' : 'processing',
-    fileSize: Number(doc.file_size || 0),
-    pageCount: Number(doc.page_count || 0),
-    uploadedAt: String(doc.created_at || new Date().toISOString()),
-    stage: (doc.stage as string) || undefined,
-    progress: Number(doc.progress || 0),
-    progressDetail: (doc.progress_detail as string) || undefined,
-  })
-
   // Load documents on mount / when user changes
   useEffect(() => {
     if (!user) {
       setDocuments([])
       return
     }
-
-    const load = async () => {
-      try {
-        const res = await fetchDocuments()
-        setDocuments(res.map(mapBackendDoc))
-      } catch (err: unknown) {
-        toast.error(err instanceof Error ? err.message : 'Failed to load documents')
-      }
-    }
-
-    load()
+    setDocuments(listDocuments())
   }, [user])
-
-  // Poll while documents are processing
-  useEffect(() => {
-    const hasProcessing = documents.some((d) => d.status === 'processing')
-    if (!hasProcessing || !user) return
-
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetchDocuments()
-        setDocuments(res.map(mapBackendDoc))
-      } catch {
-        // ignore polling connection errors silently
-      }
-    }, 4000)
-
-    return () => clearInterval(interval)
-  }, [documents, user])
 
   const filteredDocuments = useMemo(() => {
     if (!searchQuery.trim()) return documents
@@ -90,7 +50,10 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
 
   const uploadDocument = async (file: File) => {
     const tempId = `temp-${Date.now()}`
-    const name = file.name.replace(/\.(pdf|docx|doc|png|jpg|jpeg|webp|bmp|tiff|tif)$/i, '').replace(/[-_]/g, ' ').trim()
+    const name = file.name
+      .replace(/\.(pdf|docx|doc|png|jpg|jpeg|webp|bmp|tiff|tif)$/i, '')
+      .replace(/[-_]/g, ' ')
+      .trim()
     const tempDoc: Document = {
       id: tempId,
       name: name || file.name,
@@ -98,6 +61,9 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
       status: 'processing',
       fileSize: file.size,
       uploadedAt: new Date().toISOString(),
+      stage: 'Reading file',
+      progress: 10,
+      progressDetail: 'Preparing extraction',
     }
     setDocuments((prev) => [tempDoc, ...prev])
 
@@ -105,41 +71,38 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
       'document',
       { name: tempDoc.name, tempId },
       async (signal) => {
-        const res = await uploadDocumentApi(file, signal)
-        const mapped = mapBackendDoc(res.document)
-        setDocuments((prev) =>
-          prev.map((d) => (d.id === tempId ? mapped : d)),
-        )
-
-        const id = mapped.id
-        while (true) {
-          const status = await getDocumentStatus(id, signal)
-          if (status.status === 'completed' || status.status === 'failed') {
-            const fresh = await fetchDocuments(signal)
-            setDocuments(fresh.map(mapBackendDoc))
-            if (status.status === 'completed') {
-              toast.success(`Successfully uploaded "${tempDoc.name}"`)
-            } else {
-              toast.error(`Failed to process "${tempDoc.name}": ${status.progress_detail || 'Unknown error'}`)
-            }
-            return status
-          }
-          // Update progress in real-time without full refetch
+        if (signal.aborted) throw new DOMException('Cancelled by user', 'AbortError')
+        const extracted = await extractDocument(file, (msg) => {
           setDocuments((prev) =>
             prev.map((d) =>
-              d.id === id
-                ? {
-                    ...d,
-                    stage: status.stage || d.stage,
-                    progress: status.progress ?? d.progress,
-                    progressDetail: status.progress_detail || d.progressDetail,
-                  }
+              d.id === tempId
+                ? { ...d, stage: msg, progress: Math.min(d.progress ?? 10 + 10, 90) }
                 : d,
             ),
           )
-          if (signal.aborted) throw new DOMException('Cancelled by user', 'AbortError')
-          await new Promise((resolve) => setTimeout(resolve, 3000))
+        })
+
+        const readyDoc: Document = {
+          id: crypto.randomUUID(),
+          name: name || file.name,
+          filename: file.name,
+          status: 'ready',
+          fileSize: file.size,
+          uploadedAt: new Date().toISOString(),
+          pageCount: extracted.pageCount,
+          source: extracted.fullText,
+          html: extracted.html,
+          progress: 100,
+          stage: 'Ready',
+          progressDetail: 'Extraction complete',
         }
+
+        saveDocument(readyDoc)
+        setDocuments((prev) =>
+          prev.map((d) => (d.id === tempId ? readyDoc : d)),
+        )
+        toast.success(`Successfully uploaded "${readyDoc.name}"`)
+        return readyDoc
       },
     )
 
@@ -149,30 +112,20 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const deleteDocument = async (id: string) => {
-    try {
-      await deleteDocumentApi(id)
-      setDocuments((prev) => prev.filter((d) => d.id !== id))
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete document')
-    }
+  const deleteDocument = (id: string) => {
+    deleteStoredDocument(id)
+    setDocuments((prev) => prev.filter((d) => d.id !== id))
+    toast.success('Document deleted')
   }
 
-  const renameDocument = async (id: string, name: string) => {
+  const renameDocument = (id: string, name: string) => {
     if (!name.trim()) return
-    try {
-      const updated = await updateDocumentApi(id, name.trim())
-      setDocuments((prev) =>
-        prev.map((d) =>
-          d.id === id
-            ? { ...d, name: name.trim(), source: (updated.source as string) || d.source }
-            : d,
-        ),
-      )
-      toast.success('Document renamed')
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to rename document')
-    }
+    const updated = renameStoredDocument(id, name.trim())
+    if (!updated) return
+    setDocuments((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, name: name.trim() } : d)),
+    )
+    toast.success('Document renamed')
   }
 
   return (

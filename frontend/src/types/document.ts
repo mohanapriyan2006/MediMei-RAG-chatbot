@@ -9,6 +9,7 @@ export interface Document {
   uploadedAt: string
   pageCount?: number
   source?: string
+  html?: string
   version?: string
   isActive?: boolean
   stage?: string
