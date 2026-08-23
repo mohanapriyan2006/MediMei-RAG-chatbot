@@ -20,11 +20,11 @@ export function Navbar() {
   const { navigateToSection } = useSectionNavigation()
 
   const navLinks = [
-    { name: 'Home', path: '/', isSection: false },
+    { name: 'Home', path: '/home', isSection: false },
     { name: 'About', path: '/about', isSection: false },
     { name: 'Demo', path: '/demo', isSection: false },
-    { name: 'How It Works', path: '/#how-it-works', isSection: true },
-    { name: 'FAQ', path: '/#faq', isSection: true },
+    { name: 'How It Works', path: '/home#how-it-works', isSection: true },
+    { name: 'FAQ', path: '/home#faq', isSection: true },
   ]
 
   const isActive = (path: string) => {

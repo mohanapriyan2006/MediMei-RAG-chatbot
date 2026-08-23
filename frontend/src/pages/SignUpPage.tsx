@@ -52,9 +52,9 @@ export default function SignUpPage() {
     setFormError(null)
     setSubmitting(true)
     try {
-      await register(email, password)
-      toast.success('Account created successfully! Please sign in.')
-      navigate('/signin')
+      await register(email, password, name)
+      toast.success('Account created successfully!')
+      navigate('/chat')
     } catch (err) {
       setFormError(getErrorMessage(err))
     } finally {

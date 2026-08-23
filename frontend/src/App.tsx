@@ -63,25 +63,10 @@ function App() {
                     <PreviewBanner />
                     <Routes>
                       {/* Public Landing Page */}
+                      <Route path="/" element={<HomePage />} />
                       <Route path="/home" element={<HomePage />} />
 
                       {/* Protected AI Chat Assistant */}
-                      <Route
-                        path="/"
-                        element={
-                          <ProtectedRoute>
-                            <ChatPage />
-                          </ProtectedRoute>
-                        }
-                      />
-                      <Route
-                        path="/:conversationId?"
-                        element={
-                          <ProtectedRoute>
-                            <ChatPage />
-                          </ProtectedRoute>
-                        }
-                      />
                       <Route
                         path="/chat"
                         element={

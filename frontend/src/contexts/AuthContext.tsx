@@ -17,7 +17,7 @@ interface AuthContextType {
   token: string | null
   loading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string) => Promise<void>
+  register: (email: string, password: string, fullName?: string) => Promise<void>
   logout: () => void
   updateUser: (fields: Partial<UserProfile>) => void
 }
@@ -92,10 +92,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  const register = async (email: string, password: string) => {
+  const register = async (email: string, password: string, fullName?: string) => {
     setLoading(true)
     try {
-      const { token: newToken, user: newUser } = storeRegister(email, password)
+      const { token: newToken, user: newUser } = storeRegister(email, password, fullName)
       setStoredToken(newToken)
       setStoredUser(newUser)
       setToken(newToken)

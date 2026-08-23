@@ -20,7 +20,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const hash = location.hash.replace('#', '')
-    if (location.pathname !== '/' || !hash) return
+    if (!(location.pathname === '/' || location.pathname === '/home') || !hash) return
     scrollToSectionWhenReady(hash)
   }, [location.hash, location.pathname])
 

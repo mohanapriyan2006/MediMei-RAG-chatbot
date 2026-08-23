@@ -14,13 +14,14 @@ export function useSectionNavigation() {
         return
       }
 
-      if (location.pathname === '/') {
-        window.history.replaceState(null, '', `/#${sectionId}`)
+      const isHome = location.pathname === '/' || location.pathname === '/home'
+      if (isHome) {
+        window.history.replaceState(null, '', `/home#${sectionId}`)
         scrollToSection(sectionId)
         return
       }
 
-      navigate(`/#${sectionId}`)
+      navigate(`/home#${sectionId}`)
     },
     [location.pathname, navigate],
   )
