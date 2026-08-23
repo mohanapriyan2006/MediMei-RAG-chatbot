@@ -24,10 +24,9 @@ Built for the **Cognizant NPN Hackathon 2026, Use Case 7**.
 
 ## Demo Video
 
-<video controls poster="https://raw.githubusercontent.com/mohanapriyan2006/MediMei-RAG-chatbot/main/frontend/src/assets/demo/demo-video-thumbnail.jpeg" width="100%">
-  <source src="https://raw.githubusercontent.com/mohanapriyan2006/MediMei-RAG-chatbot/main/frontend/src/assets/demo/demo-video.mp4" type="video/mp4">
-  Your browser does not support the video tag. You can <a href="https://raw.githubusercontent.com/mohanapriyan2006/MediMei-RAG-chatbot/main/frontend/src/assets/demo/demo-video.mp4">download the demo video here</a>.
-</video>
+## Demo Video
+[![Demo Video](https://raw.githubusercontent.com/mohanapriyan2006/MediMei-RAG-chatbot/main/frontend/src/assets/demo/demo-video-thumbnail.jpeg)](https://raw.githubusercontent.com/mohanapriyan2006/MediMei-RAG-chatbot/main/frontend/src/assets/demo/demo-video.mp4)
+
 
 ---
 
