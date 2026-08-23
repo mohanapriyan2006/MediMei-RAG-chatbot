@@ -41,6 +41,8 @@ export function MobileSidebar() {
       >
         <Sidebar onClose={closeSidebar} />
       </div>
+
+
     </div>
   )
 }

@@ -64,6 +64,9 @@ async def rerank_documents(
         # Attach rerank score and sort documents
         for doc, score in zip(documents, scores):
             doc["rerank_score"] = float(score)
+            if "score" in doc and "vector_score" not in doc:
+                doc["vector_score"] = doc["score"]
+            doc["score"] = float(score)
 
         # Sort based on cross-encoder rerank score descending
         ranked_docs = sorted(documents, key=lambda x: x["rerank_score"], reverse=True)

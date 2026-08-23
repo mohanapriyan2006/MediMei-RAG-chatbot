@@ -94,9 +94,9 @@ export function GlobalSearchPanel() {
       <div
         ref={panelRef}
         onClick={(e) => e.stopPropagation()}
-        className="z-50 w-full max-w-md overflow-hidden rounded-xl border border-border bg-surface shadow-card animate-fade-in"
+        className="z-50 w-full max-w-md pb-6 overflow-hidden rounded-xl border border-border bg-surface shadow-card animate-fade-in"
       >
-        <div className="flex h-10 items-center gap-2 border-b border-border px-3">
+        <div className="flex h-10 items-center gap-2 border-b border-border p-6">
           <Search className="h-3.5 w-3.5 shrink-0 text-fg-muted" aria-hidden="true" />
           <input
             ref={inputRef}

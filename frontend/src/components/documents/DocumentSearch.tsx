@@ -7,7 +7,7 @@ export function DocumentSearch() {
   return (
     <div className="relative w-full sm:max-w-[260px]">
       <Search
-        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-muted"
+        className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted"
         aria-hidden="true"
       />
       <input
@@ -31,3 +31,12 @@ export function DocumentSearch() {
     </div>
   )
 }
+
+
+
+
+
+
+
+
+

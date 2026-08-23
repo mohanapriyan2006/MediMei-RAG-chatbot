@@ -9,6 +9,7 @@ export interface UserProfile {
   full_name?: string
   username?: string
   display_name?: string
+  memory_enabled?: boolean
 }
 
 export interface TokenResponse {

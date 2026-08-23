@@ -18,7 +18,7 @@ export function CompareButton({ onClick, disabled, loading }: CompareButtonProps
       {loading ? (
         <>
           <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-          <span>Comparing\u2026</span>
+          <span>Comparing...</span>
         </>
       ) : (
         <>

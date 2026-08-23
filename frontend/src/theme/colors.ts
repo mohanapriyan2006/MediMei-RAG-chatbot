@@ -25,4 +25,16 @@ export const BaseColors = {
   borderDark: 'rgba(200, 225, 221, 0.22)',
 } as const
 
+
+
+
 export type BaseColorKey = keyof typeof BaseColors
+
+
+
+
+
+
+
+
+

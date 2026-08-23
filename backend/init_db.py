@@ -16,26 +16,31 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def init_db():
-    password_part = f":{settings.MYSQL_PASSWORD}" if settings.MYSQL_PASSWORD else ""
-    base_url = f"mysql+asyncmy://{settings.MYSQL_USER}{password_part}@{settings.MYSQL_HOST}:{settings.MYSQL_PORT}/"
-    db_url = f"{base_url}{settings.MYSQL_DATABASE}"
+    db_url = settings.DATABASE_URL
+    if not db_url:
+        password_part = f":{settings.MYSQL_PASSWORD}" if settings.MYSQL_PASSWORD else ""
+        base_url = f"mysql+asyncmy://{settings.MYSQL_USER}{password_part}@{settings.MYSQL_HOST}:{settings.MYSQL_PORT}/"
+        db_url = f"{base_url}{settings.MYSQL_DATABASE}"
+        
+        logger.info(f"Connecting to MySQL server to check/create database: {settings.MYSQL_DATABASE}")
+        try:
+            from sqlalchemy import text
+            engine = create_async_engine(base_url, echo=False)
+            async with engine.connect() as conn:
+                await conn.execute(text(f"CREATE DATABASE IF NOT EXISTS {settings.MYSQL_DATABASE};"))
+                await conn.commit()
+            await engine.dispose()
+            logger.info(f"Database '{settings.MYSQL_DATABASE}' is verified. Creating tables...")
+        except Exception as e:
+            logger.warning(f"Could not connect to MySQL ({e}). Falling back to local SQLite database.")
+            db_url = "sqlite+aiosqlite:///./labelproof.db"
+
+    is_sqlite = db_url.startswith("sqlite")
+    connect_args = {"check_same_thread": False} if is_sqlite else {}
     
-    logger.info(f"Connecting to MySQL server to check/create database: {settings.MYSQL_DATABASE}")
-    
-    # 1. Create database if it doesn't exist
-    from sqlalchemy import text
-    engine = create_async_engine(base_url, echo=False)
-    async with engine.connect() as conn:
-        await conn.execute(text(f"CREATE DATABASE IF NOT EXISTS {settings.MYSQL_DATABASE};"))
-        await conn.commit()
-    await engine.dispose()
-    
-    logger.info(f"Database '{settings.MYSQL_DATABASE}' is verified. Creating tables...")
-    
-    # 2. Create all tables
-    engine = create_async_engine(db_url, echo=True)
+    logger.info(f"Initializing database tables using URL: {db_url}")
+    engine = create_async_engine(db_url, echo=True, connect_args=connect_args)
     async with engine.begin() as conn:
-        # run_sync is required to run sync metadata operations
         await conn.run_sync(Base.metadata.create_all)
     await engine.dispose()
     

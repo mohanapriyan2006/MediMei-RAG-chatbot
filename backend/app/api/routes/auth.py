@@ -47,10 +47,17 @@ async def login(
     result = await db.execute(select(User).filter(User.email == user_in.email))
     user = result.scalar_one_or_none()
     
-    if not user or not verify_password(user_in.password, user.hashed_password):
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password.",
+            detail="Account not found. Create a new account.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not verify_password(user_in.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect password.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     

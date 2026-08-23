@@ -1,11 +1,20 @@
 import { useState } from 'react'
+import { PanelRightOpen } from 'lucide-react'
 import { ChatLayout } from '../components/layout/ChatLayout'
 import { ChatWindow } from '../components/chat/ChatWindow'
 import { PromptBar } from '../components/chat/PromptBar'
 import { EvidencePanel } from '../components/evidence/EvidencePanel'
+import { useUI } from '../hooks/useUI'
+import { useChat } from '../hooks/useChat'
 
 export default function ChatPage() {
   const [evidenceDrawerOpen, setEvidenceDrawerOpen] = useState(false)
+  const { isMobile } = useUI()
+  const { activeCitations } = useChat()
+
+  const openEvidence = () => {
+    if (isMobile) setEvidenceDrawerOpen(true)
+  }
 
   return (
     <ChatLayout>
@@ -14,11 +23,11 @@ export default function ChatPage() {
         <div className="flex min-w-0 flex-1 flex-col h-full overflow-hidden">
 
           {/* Conversation Stream */}
-          <ChatWindow />
+          <ChatWindow onOpenEvidence={openEvidence} />
 
           {/* Sticky Bottom Prompt Input */}
-          <div className="bg-transparent p-4 backdrop-blur-xs">
-            <div className="mx-auto max-w-3xl">
+          <div className="bg-transparent p-2 sm:p-4 backdrop-blur-xs">
+            <div className="mx-auto w-full max-w-3xl">
               <PromptBar />
             </div>
           </div>
@@ -37,7 +46,20 @@ export default function ChatPage() {
             </div>
           </div>
         )}
+
+        {/* Mobile evidence sliver trigger */}
+        {isMobile && activeCitations.length > 0 && !evidenceDrawerOpen && (
+          <button
+            type="button"
+            onClick={() => setEvidenceDrawerOpen(true)}
+            aria-label={`View ${activeCitations.length} source${activeCitations.length === 1 ? '' : 's'}`}
+            className="fixed right-0 top-1/2 z-30 -translate-y-1/2 rounded-l-2xl bg-primary px-2 py-3 text-white shadow-card transition-transform active:scale-95"
+          >
+            <PanelRightOpen className="h-5 w-5" />
+          </button>
+        )}
       </div>
     </ChatLayout>
   )
 }
+

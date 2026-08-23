@@ -1,8 +1,10 @@
+import asyncio
 import logging
 import uuid
 from typing import List, Dict, Any, Optional
 
 from qdrant_client import AsyncQdrantClient
+from qdrant_client.http.exceptions import ResponseHandlingException
 from qdrant_client.models import (
     Distance,
     VectorParams,
@@ -18,6 +20,10 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+QDRANT_TIMEOUT = 30
+QDRANT_MAX_RETRIES = 2
+QDRANT_RETRY_DELAY = 1.0
+
 
 class QdrantRepository:
     """
@@ -30,6 +36,7 @@ class QdrantRepository:
         self.collection_name = settings.QDRANT_COLLECTION
         self._collection_verified = False
         self._vector_size: Optional[int] = None
+        self._lock = asyncio.Lock()
 
     @property
     def client(self) -> AsyncQdrantClient:
@@ -37,9 +44,15 @@ class QdrantRepository:
             api_key = getattr(settings, "QDRANT_API_KEY", None)
             self._client = AsyncQdrantClient(
                 url=settings.QDRANT_URL,
-                api_key=api_key
+                api_key=api_key,
+                timeout=QDRANT_TIMEOUT,
             )
         return self._client
+
+    def _reset_client(self):
+        """Reset the cached client so the next access creates a fresh connection."""
+        self._client = None
+        self._collection_verified = False
 
     def set_vector_size(self, vector_size: int):
         """Set the collection vector size from the actual embedding model."""
@@ -56,45 +69,49 @@ class QdrantRepository:
         if self._collection_verified:
             return
 
-        try:
-            collections = await self.client.get_collections()
-            exists = any(c.name == self.collection_name for c in collections.collections)
+        async with self._lock:
+            if self._collection_verified:
+                return
 
-            size = self._vector_size or 1024  # Safe default until verified by the model
+            try:
+                collections = await self.client.get_collections()
+                exists = any(c.name == self.collection_name for c in collections.collections)
 
-            if not exists:
-                logger.info(f"Creating Qdrant collection: {self.collection_name}")
-                await self.client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=VectorParams(
-                        size=size,
-                        distance=Distance.COSINE
+                size = self._vector_size or 1024  # Safe default until verified by the model
+
+                if not exists:
+                    logger.info(f"Creating Qdrant collection: {self.collection_name}")
+                    await self.client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=VectorParams(
+                            size=size,
+                            distance=Distance.COSINE
+                        )
                     )
-                )
 
-                # Payload indexes for filtering and keyword retrieval
-                keyword_fields = ["document_id", "section", "version", "extraction_method"]
-                for field in keyword_fields:
+                    # Payload indexes for filtering and keyword retrieval
+                    keyword_fields = ["document_id", "section", "version", "extraction_method"]
+                    for field in keyword_fields:
+                        await self.client.create_payload_index(
+                            collection_name=self.collection_name,
+                            field_name=field,
+                            field_schema="keyword"
+                        )
+
                     await self.client.create_payload_index(
                         collection_name=self.collection_name,
-                        field_name=field,
-                        field_schema="keyword"
+                        field_name="chunk_text",
+                        field_schema=TextIndexParams(
+                            type="text",
+                            tokenizer=TokenizerType.WORD,
+                            lowercase=True
+                        )
                     )
+                    logger.info("Successfully configured Qdrant collection and indexes.")
 
-                await self.client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="chunk_text",
-                    field_schema=TextIndexParams(
-                        type="text",
-                        tokenizer=TokenizerType.WORD,
-                        lowercase=True
-                    )
-                )
-                logger.info("Successfully configured Qdrant collection and indexes.")
-
-            self._collection_verified = True
-        except Exception as e:
-            logger.error(f"Failed to verify/create Qdrant collection: {e}")
+                self._collection_verified = True
+            except Exception as e:
+                logger.error(f"Failed to verify/create Qdrant collection: {e}")
 
     async def add_chunk(
         self,
@@ -105,7 +122,10 @@ class QdrantRepository:
         section: Optional[str],
         chunk_index: int,
         chunk_text: str,
-        embedding: List[float]
+        embedding: List[float],
+        quality_score: float = 1.0,
+        ocr_confidence: Optional[float] = None,
+        extraction_method: Optional[str] = None,
     ):
         """Index a single document chunk with both text and metadata payload."""
         await self.ensure_collection_exists()
@@ -121,7 +141,10 @@ class QdrantRepository:
                 "section": section,
                 "chunk_index": chunk_index,
                 "chunk_text": chunk_text,
-                "text": chunk_text  # Added for backwards/alternate schema compatibility
+                "text": chunk_text,  # Added for backwards/alternate schema compatibility
+                "quality_score": quality_score,
+                "ocr_confidence": ocr_confidence,
+                "extraction_method": extraction_method,
             }
         )
 
@@ -159,6 +182,8 @@ class QdrantRepository:
                     "extraction_method": chunk.get("extraction_method"),
                     "version": chunk.get("version"),
                     "text_hash": chunk.get("text_hash"),
+                    "quality_score": chunk.get("quality_score", 1.0),
+                    "ocr_confidence": chunk.get("ocr_confidence"),
                 }
             )
             points.append(point)
@@ -196,15 +221,31 @@ class QdrantRepository:
 
         query_filter = Filter(must=must_conditions) if must_conditions else None
 
-        results = await self.client.query_points(
-            collection_name=self.collection_name,
-            query=query_vector,
-            query_filter=query_filter,
-            limit=limit,
-            score_threshold=score_threshold,
-        )
+        last_exc = None
+        for attempt in range(QDRANT_MAX_RETRIES + 1):
+            try:
+                results = await self.client.query_points(
+                    collection_name=self.collection_name,
+                    query=query_vector,
+                    query_filter=query_filter,
+                    limit=limit,
+                    score_threshold=score_threshold,
+                )
+                return results.points
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "Qdrant search attempt %d/%d failed: %s",
+                    attempt + 1,
+                    QDRANT_MAX_RETRIES + 1,
+                    exc,
+                )
+                if attempt < QDRANT_MAX_RETRIES:
+                    self._reset_client()
+                    await self.ensure_collection_exists()
+                    await asyncio.sleep(QDRANT_RETRY_DELAY)
 
-        return results.points
+        raise last_exc
 
     async def delete_document_chunks(self, document_id: str):
         """Delete all vectors and payload associated with a specific document ID from Qdrant."""

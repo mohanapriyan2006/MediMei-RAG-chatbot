@@ -78,3 +78,39 @@ async def test_create_chunks_with_pages():
     assert mock_db.execute.call_count == 4
     assert mock_db.add.call_count == 2
     mock_db.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_create_chunks_cleans_and_lowercases():
+    mock_db = AsyncMock()
+    mock_db.add = MagicMock()
+    
+    mock_doc = Document(document_id="doc-uuid-1", file_name="Test.pdf")
+    page1 = DocumentPage(document_id="doc-uuid-1", page_no=1, text_ref="The Dosage is 10 mg. 😊")
+    
+    mock_result_doc = MagicMock()
+    mock_result_doc.scalar_one_or_none.return_value = mock_doc
+    
+    mock_result_pages = MagicMock()
+    mock_result_pages.scalars.return_value.all.return_value = [page1]
+    
+    mock_result_delete = MagicMock()
+    
+    # We will check the object added to the DB
+    mock_db.execute.side_effect = [
+        mock_result_doc,
+        mock_result_pages,
+        mock_result_delete,
+        MagicMock() # for chunks select at end
+    ]
+    
+    await create_chunks("doc-uuid-1", mock_db)
+    
+    # Check what was added
+    mock_db.add.assert_called_once()
+    added_chunk = mock_db.add.call_args[0][0]
+    
+    # "The Dosage is 10 mg. 😊" -> 'is' and 'the' are stop words, 😊 is removed, converted to lowercase
+    # Result: "dosage 10 mg."
+    assert added_chunk.chunk_text == "dosage 10 mg."
+

@@ -6,7 +6,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "MediMei"
     ENVIRONMENT: str = "development"
 
-    # MySQL Database Settings
+    # Database Settings
+    DATABASE_URL: Optional[str] = None
     MYSQL_HOST: str = "localhost"
     MYSQL_PORT: int = 3306
     MYSQL_DATABASE: str = "MediMei"
@@ -40,10 +41,10 @@ class Settings(BaseSettings):
 
     # Qwen generation parameters
     LLM_DEVICE: Optional[str] = None  # "cuda", "cpu", or auto
-    LLM_N_CTX: int = 4096
+    LLM_N_CTX: int = 8192
     LLM_N_GPU_LAYERS: int = -1
     LLM_TEMPERATURE: float = 0.1
-    LLM_MAX_NEW_TOKENS: int = 512
+    LLM_MAX_NEW_TOKENS: int = 2048
     LLM_MAX_INPUT_TOKENS: int = 3072
 
     # Local vs API LLM toggle
@@ -61,8 +62,10 @@ class Settings(BaseSettings):
 
     # RAG Settings
     TOP_K: int = 8
-    MIN_RELEVANCE_SCORE: float = 0.35
+    MIN_RELEVANCE_SCORE: float = 0.20
     MAX_UPLOAD_SIZE_MB: int = 50
+    ENABLE_RERANKING: bool = True
+    RERANK_CANDIDATES_LIMIT: int = 25
 
     # Pydantic Settings Config
     model_config = SettingsConfigDict(

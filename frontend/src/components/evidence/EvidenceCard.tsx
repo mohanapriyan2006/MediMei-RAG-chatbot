@@ -1,4 +1,4 @@
-import { FileText, ArrowUpRight, BookOpen, CheckCircle } from 'lucide-react'
+import { FileText, ArrowUpRight, BookOpen, CheckCircle, Sparkles } from 'lucide-react'
 import type { Citation } from '../../types/chat'
 
 export interface EvidenceCardProps {
@@ -33,10 +33,22 @@ export function EvidenceCard({
               {citation.documentName}
             </h4>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="rounded-pill bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                Page {citation.page}
-              </span>
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-success">
+              {citation.documentId === 'USER_MEMORY' ? (
+                <span className="rounded-pill bg-accent/10 px-2 py-0.5 text-[10px] font-bold text-accent inline-flex items-center gap-1">
+                  <Sparkles className="h-2.5 w-2.5" />
+                  <span>User Memory</span>
+                </span>
+              ) : (
+                <span className="rounded-pill bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                  Page {citation.page}
+                </span>
+              )}
+              {citation.score != null && (
+                <span className="rounded-pill bg-success/10 px-2 py-0.5 text-[10px] font-bold text-success">
+                  {(citation.score * 100).toFixed(0)}% match
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-fg-muted">
                 <CheckCircle className="h-2.5 w-2.5" />
                 <span>Verified</span>
               </span>
@@ -73,16 +85,19 @@ export function EvidenceCard({
       )}
 
       <div className="mt-3 flex items-center justify-between border-t border-border/80 pt-2 text-[10px] text-fg-muted">
-        <span>Chunk #{citation.citationId.slice(-6)}</span>
+        <span className="font-mono">
+          {citation.documentId === 'USER_MEMORY' ? 'Memory' : `Chunk #${citation.citationId.slice(-6)}`}
+        </span>
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation()
             if (onViewSource) onViewSource(citation)
           }}
-          className="font-bold text-accent hover:underline"
+          className="inline-flex items-center gap-1 font-bold text-accent hover:underline"
         >
-          [ View Source ]
+          <ArrowUpRight className="h-3 w-3" />
+          <span>View Source</span>
         </button>
       </div>
     </div>

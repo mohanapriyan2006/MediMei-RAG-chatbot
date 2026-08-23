@@ -174,3 +174,44 @@ def test_safety_validator_disclaimer_injection():
     # Verify clinical safety disclaimer was appended
     assert "Always consult a healthcare provider" in result["cleaned_answer"]
     assert result["safety_flags"]["disclaimer_appended"] is True
+
+
+# =====================================================================
+# FUZZY VALIDATION TESTS
+# =====================================================================
+
+def test_validate_claims_fuzzy_frequency():
+    draft = "Take RINVOQ 15 mg once daily."
+    # Evidence uses QD (which is in the same frequency group)
+    chunks = [{"text": "The approved label indicates RINVOQ 15 mg QD dosage."}]
+    result = claim_validator.validate_claims(draft, chunks)
+    assert result["valid"] is True
+    assert len(result["failed_checks"]) == 0
+
+
+def test_validate_claims_fuzzy_contraindication():
+    draft = "Do not use RINVOQ if you are pregnant."
+    # Evidence uses avoid (which is in the contraindication synonyms)
+    chunks = [{"text": "Avoid RINVOQ during pregnancy."}]
+    result = claim_validator.validate_claims(draft, chunks)
+    assert result["valid"] is True
+    assert len(result["failed_checks"]) == 0
+
+
+def test_evidence_validator_prompt_contains_relaxation_instruction():
+    mock_llm = MagicMock()
+    mock_llm.return_value = {
+        "choices": [{"text": "[]"}]
+    }
+    with patch.object(evidence_validator, "_llm_client", mock_llm):
+        draft_answer = "Rinvoq is 15 mg."
+        chunks = [{"chunk_id": "c1", "text": "Rinvoq dose is 15 mg daily."}]
+        
+        evidence_validator.validate_evidence(draft_answer, chunks)
+        
+        # Verify the prompt passed to the LLM client contains our new instructions
+        called_prompt = mock_llm.call_args[0][0]
+        assert "semantically equivalent" in called_prompt
+        assert "paraphrased" in called_prompt
+        assert "logically implied" in called_prompt
+

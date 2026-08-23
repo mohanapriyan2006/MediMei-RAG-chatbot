@@ -197,6 +197,12 @@ The initial migration (`ab4774dd04e0_create_users_table`) creates the `users` ta
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+## Starting Qdrant (Docker)
+
+```bash
+docker run -p 6333:6333 -p 6034:6034 -v qdrant_storage:/qdrant/storage qdrant/qdrant
+```
+
 The API will be available at:
 - **API base:** `http://localhost:8000/api/v1`
 - **Health check:** `http://localhost:8000/health`

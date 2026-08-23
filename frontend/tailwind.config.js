@@ -66,7 +66,12 @@ export default {
         hover: 'var(--shadow-hover)',
         subtle: 'var(--shadow-subtle)',
       },
+
+
     },
   },
+
   plugins: [],
 }
+
+

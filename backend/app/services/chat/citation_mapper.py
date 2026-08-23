@@ -51,9 +51,10 @@ class CitationMapper:
                 # Strip the bogus marker and surrounding whitespace.
                 answer = re.sub(rf"\s*\[{re.escape(cid)}\]\s*", " ", answer)
 
-        # Remove stray spaces before punctuation and collapse runs.
-        answer = re.sub(r"\s+([.,;:!?])", r"\1", answer)
-        answer = re.sub(r"\s+", " ", answer).strip()
+        # Remove stray spaces before punctuation and collapse consecutive horizontal spaces without destroying newlines.
+        answer = re.sub(r"[ \t]+([.,;:!?])", r"\1", answer)
+        answer = re.sub(r"[ \t]+", " ", answer)
+        answer = re.sub(r"\n{3,}", "\n\n", answer).strip()
 
         if invalid:
             logger.warning("Model produced invalid citation markers: %s", invalid)

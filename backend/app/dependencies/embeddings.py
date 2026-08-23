@@ -72,8 +72,10 @@ def get_embedding_dimension() -> int:
     model = get_embedding_model()
     get_dim = getattr(model, "get_embedding_dimension", None)
     if get_dim is None:
-        get_dim = getattr(model, "get_sentence_embedding_dimension")
-    return get_dim()
+        get_dim = getattr(model, "get_sentence_embedding_dimension", None)
+    if callable(get_dim):
+        return get_dim()
+    return getattr(model, "dimension", getattr(model, "vector_size", 1024))
 
 
 def get_embedding_model_info() -> Dict[str, Any]:

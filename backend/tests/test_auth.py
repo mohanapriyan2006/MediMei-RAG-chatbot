@@ -121,7 +121,7 @@ def test_login_user_incorrect_password(client, mock_db):
 
     response = client.post("/api/v1/auth/login", json=payload)
     assert response.status_code == 401
-    assert response.json()["detail"] == "Incorrect email or password."
+    assert response.json()["detail"] == "Incorrect password."
 
 
 def test_login_user_not_found(client, mock_db):
@@ -137,7 +137,7 @@ def test_login_user_not_found(client, mock_db):
 
     response = client.post("/api/v1/auth/login", json=payload)
     assert response.status_code == 401
-    assert response.json()["detail"] == "Incorrect email or password."
+    assert response.json()["detail"] == "Account not found. Create a new account."
 
 
 def test_get_me_success(client, mock_db):

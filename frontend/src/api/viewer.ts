@@ -23,3 +23,23 @@ export async function fetchDocumentFile(documentId: string): Promise<Blob> {
 
   return res.blob()
 }
+
+export interface DocumentChunkRecord {
+  chunk_id: string
+  page_no: number
+  section: string
+  text: string
+}
+
+export async function fetchDocumentChunks(documentId: string): Promise<DocumentChunkRecord[]> {
+  const token = localStorage.getItem('labelproof_token')
+  try {
+    const res = await fetch(`${BASE_URL}/api/v1/documents/${documentId}/chunks`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) return []
+    return await res.json()
+  } catch {
+    return []
+  }
+}

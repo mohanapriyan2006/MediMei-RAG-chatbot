@@ -1,7 +1,8 @@
 import { useRef, useState, useEffect, useLayoutEffect } from 'react'
-import { Plus, Send, Mic, Loader2, FolderOpen } from 'lucide-react'
+import { Send, Mic, Loader2, FolderOpen } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 import { useDocuments } from '../../hooks/useDocuments'
+import { useTask } from '../../hooks/useTask'
 import { useSearchParams } from 'react-router-dom'
 import { useVoiceInput } from '../../hooks/useVoiceInput'
 import { DocumentSelectorModal } from './DocumentSelectorModal'
@@ -16,10 +17,13 @@ export function PromptBar() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const measureRef = useRef<HTMLSpanElement>(null)
   const controlsRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const valueRef = useRef('')
-  const { sendMessage, isLoading } = useChat()
+  const { sendMessage, isLoading, clearChat } = useChat()
   const { documents } = useDocuments()
+  const { currentTask } = useTask()
+
+  const isTaskRunning = currentTask.status === 'running'
+  const isBlocked = isTaskRunning && currentTask.type !== 'chat'
   const [searchParams] = useSearchParams()
 
   const { listening, toggleListening } = useVoiceInput({
@@ -34,10 +38,18 @@ export function PromptBar() {
 
   useEffect(() => {
     const q = searchParams.get('q')
+    const doc = searchParams.get('doc')
+    const isNew = searchParams.get('new') === '1'
     if (q && !value) {
       setValue(q)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (isNew) {
+      clearChat()
+    }
+    if (doc) {
+      setSelectedDocIds([doc])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
 
   useLayoutEffect(() => {
@@ -58,10 +70,11 @@ export function PromptBar() {
     }
   }, [value, expanded])
 
-  const canSubmit = !isLoading && !!value.trim()
+  const canSubmit = !isLoading && !isTaskRunning && !!value.trim()
 
   const handleSubmit = () => {
     if (!canSubmit) return
+    if (isTaskRunning) return
     sendMessage(value.trim(), selectedDocIds)
     setValue('')
     setAttachments([])
@@ -82,14 +95,6 @@ export function PromptBar() {
     setValue(e.target.value)
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files) return
-    const names = Array.from(files).map((f) => f.name)
-    setAttachments((prev) => [...prev, ...names])
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
-
   const removeAttachment = (index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index))
   }
@@ -100,6 +105,18 @@ export function PromptBar() {
 
   return (
     <div className="w-full">
+      {isBlocked && (
+        <div
+          role="alert"
+          className="mb-2 flex items-center gap-2 rounded-xl border border-warning/30 bg-warning/5 px-4 py-2 text-xs font-semibold text-warning"
+        >
+          {currentTask.type === 'compare'
+            ? 'A comparison is in progress. Wait or switch to Compare.'
+            : currentTask.type === 'document'
+              ? 'A document is being processed. Wait or switch to Documents.'
+              : 'Another task is in progress. Please wait.'}
+        </div>
+      )}
       <SelectedDocChips
         selectedDocs={selectedDocs}
         allSelected={allSelected}
@@ -108,9 +125,8 @@ export function PromptBar() {
       />
 
       <div
-        className={`relative isolate flex flex-col gap-1.5 overflow-hidden border border-border bg-surface p-2 shadow-card transition-all duration-150 focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10 ${
-          attachments.length > 0 || expanded ? 'rounded-2xl' : 'rounded-full'
-        }`}
+        className={`relative isolate flex flex-col gap-1.5 overflow-hidden border border-border bg-surface p-1.5 sm:p-2 shadow-card transition-all duration-150 focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/10 ${attachments.length > 0 || expanded ? 'rounded-2xl' : 'rounded-full'
+          }`}
       >
         {/* hidden measure span for auto-expand */}
         <span
@@ -121,67 +137,46 @@ export function PromptBar() {
           {value}
         </span>
 
-        {/* hidden file input */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          onChange={handleFileSelect}
-          className="hidden"
-          accept=".pdf,.docx,.doc"
-        />
-
         <AttachmentChips attachments={attachments} onRemove={removeAttachment} />
 
         {/* controls row */}
         <div
           ref={controlsRef}
-          className={`grid items-end gap-x-1 gap-y-1.5 ${
-            expanded
-              ? 'grid-cols-[28px_28px_28px_28px]'
-              : 'grid-cols-[28px_minmax(0,1fr)_28px_28px_28px]'
-          }`}
+          className={`grid items-end gap-x-1.5 gap-y-1.5 sm:gap-x-2 sm:gap-y-2 ${expanded
+            ? 'grid-cols-[28px_28px_28px]'
+            : 'grid-cols-[28px_minmax(0,1fr)_28px_28px]'
+            }`}
         >
-          {/* plus / file upload button */}
+          {/* document selector button  className={`flex h-7 w-7 shrink-0 items-center justify-center justify-self-start rounded-lg text-fg-muted transition-all duration-150 hover:bg-surface-highlight hover:text-fg active:scale-95 ${
+              attachments.length > 0 ? 'text-primary' : ''
+            } ${expanded ? 'col-start-1 row-start-2' : 'col-start-1 row-start-1'}`}*/}
           <button
             type="button"
-            aria-label="Upload files"
-            onClick={() => fileInputRef.current?.click()}
-            className={`flex h-7 w-7 shrink-0 items-center justify-center justify-self-start rounded-lg text-fg-muted transition-all duration-150 hover:bg-surface-highlight hover:text-fg active:scale-95 ${
-              attachments.length > 0 ? 'text-primary' : ''
-            } ${expanded ? 'col-start-1 row-start-2' : 'col-start-1 row-start-1'}`}
+            aria-label="Select saved documents"
+            onClick={() => setDocModalOpen(true)}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center justify-self-start rounded-lg text-fg-muted transition-all duration-150 hover:bg-surface-highlight hover:text-fg active:scale-95  ${selectedDocIds.length > 0
+              ? 'bg-primary/10 text-primary'
+              : 'text-fg-muted hover:bg-surface-highlight hover:text-fg'
+              } ${expanded ? 'col-start-1 row-start-2' : 'col-start-1 row-start-1'}`}
           >
-            <Plus className="h-4 w-4" strokeWidth={2} />
+            <FolderOpen className="h-3.5 w-3.5" strokeWidth={2} />
           </button>
 
           {/* textarea */}
           <textarea
             ref={textareaRef}
-            rows={1}
+            // rows={1}
             value={value}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder={listening ? 'Listening…' : 'Ask about dosage, warnings, contraindications…'}
             aria-label="Ask about medication"
-            disabled={isLoading}
-            className={`min-h-7 min-w-0 w-full resize-none bg-transparent px-1 py-[5px] text-[13px] leading-[18px] text-fg outline-none [overflow-wrap:anywhere] placeholder:text-fg-muted ${
-              expanded ? 'col-span-full col-start-1 row-start-1' : 'col-start-2 row-start-1'
+            disabled={isLoading || isTaskRunning}
+            className={`min-h-7 max-h-[40px] w-full resize-none bg-transparent px-1 py-[5px] text-[13px] leading-[18px] text-fg outline-none placeholder:text-fg-muted ${
+              expanded ? 'col-span-full col-start-2 row-start-1' : 'col-start-2 row-start-1'
             }`}
           />
 
-          {/* document selector button */}
-          <button
-            type="button"
-            aria-label="Select saved documents"
-            onClick={() => setDocModalOpen(true)}
-            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-150 active:scale-95 ${
-              selectedDocIds.length > 0
-                ? 'bg-primary/10 text-primary'
-                : 'text-fg-muted hover:bg-surface-highlight hover:text-fg'
-            } ${expanded ? 'col-start-2 row-start-2' : 'col-start-3 row-start-1'}`}
-          >
-            <FolderOpen className="h-3.5 w-3.5" strokeWidth={2} />
-          </button>
 
           {/* mic / dictation button */}
           <button
@@ -189,11 +184,10 @@ export function PromptBar() {
             aria-label={listening ? 'Stop dictation' : 'Start dictation'}
             aria-pressed={listening}
             onClick={toggleListening}
-            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-150 active:scale-95 ${
-              listening
-                ? 'bg-primary/10 text-primary'
-                : 'text-fg-muted hover:bg-surface-highlight hover:text-fg'
-            } ${expanded ? 'col-start-3 row-start-2' : 'col-start-4 row-start-1'}`}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-150 active:scale-95 ${listening
+              ? 'bg-primary/10 text-primary'
+              : 'text-fg-muted hover:bg-surface-highlight hover:text-fg'
+              } ${expanded ? 'col-start-2 row-start-2' : 'col-start-3 row-start-1'}`}
           >
             {listening ? (
               <span className="flex h-3.5 items-center gap-[2.5px]">
@@ -219,9 +213,8 @@ export function PromptBar() {
             aria-label="Send clinical inquiry"
             disabled={!canSubmit}
             onClick={handleSubmit}
-            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-200 enabled:active:scale-95 ${
-              expanded ? 'col-start-4 row-start-2' : 'col-start-5 row-start-1'
-            }`}
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-200 enabled:active:scale-95 ${expanded ? 'col-start-3 row-start-2' : 'col-start-4 row-start-1'
+              }`}
             style={{
               background: canSubmit ? 'var(--color-primary)' : 'var(--color-border)',
               color: canSubmit ? 'var(--color-surface)' : 'var(--color-foreground-muted)',
@@ -230,7 +223,7 @@ export function PromptBar() {
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Send className="h-4 w-4" strokeWidth={2.4} />
+              <Send className="h-4 w-4 mr-0.5" strokeWidth={2.4} />
             )}
           </button>
         </div>

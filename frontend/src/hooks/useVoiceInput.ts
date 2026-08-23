@@ -2,9 +2,34 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 declare global {
   interface Window {
-    SpeechRecognition?: any
-    webkitSpeechRecognition?: any
+    SpeechRecognition?: new () => SpeechRecognitionInstance
+    webkitSpeechRecognition?: new () => SpeechRecognitionInstance
   }
+}
+
+interface SpeechRecognitionInstance {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  start: () => void
+  stop: () => void
+  onresult: (event: SpeechRecognitionEvent) => void
+  onerror: (event: SpeechRecognitionErrorEvent) => void
+  onend: () => void
+}
+
+interface SpeechRecognitionEvent {
+  resultIndex: number
+  results: SpeechRecognitionResultList
+}
+
+interface SpeechRecognitionResultList {
+  length: number
+  [index: number]: { isFinal: boolean; [index: number]: SpeechRecognitionResult }
+}
+
+interface SpeechRecognitionErrorEvent {
+  error: string
 }
 
 interface SpeechRecognitionResult {
@@ -20,7 +45,7 @@ interface UseVoiceInputOptions {
 
 export function useVoiceInput({ valueRef, onTranscript, textareaRef }: UseVoiceInputOptions) {
   const [listening, setListening] = useState(false)
-  const recognitionRef = useRef<any>(null)
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
   const finalTranscriptRef = useRef('')
   const shouldListenRef = useRef(false)
 
@@ -51,7 +76,7 @@ export function useVoiceInput({ valueRef, onTranscript, textareaRef }: UseVoiceI
     finalTranscriptRef.current = valueRef.current ? valueRef.current + ' ' : ''
     shouldListenRef.current = true
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interim = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result: SpeechRecognitionResult = event.results[i][0]
@@ -64,7 +89,7 @@ export function useVoiceInput({ valueRef, onTranscript, textareaRef }: UseVoiceI
       onTranscript(finalTranscriptRef.current + interim)
     }
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (event.error === 'no-speech' || event.error === 'aborted') return
       console.error('Speech recognition error:', event.error)
       shouldListenRef.current = false

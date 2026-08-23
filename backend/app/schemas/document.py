@@ -9,8 +9,13 @@ class DocumentResponse(BaseModel):
     source: str | None = None
     version: str | None = None
     status: str | None = None
+    stage: str | None = None
+    progress: int | None = None
+    progress_detail: str | None = None
     created_at: datetime | None = None
     is_active: bool | None = None
+    file_size: int | None = None
+    page_count: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -38,4 +43,6 @@ class DocumentStatusResponse(BaseModel):
     document_id: str
     status: str | None = None
     stage: str | None = None
+    progress: int | None = None
+    progress_detail: str | None = None
     message: str

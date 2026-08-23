@@ -59,7 +59,7 @@ coverage.xml
 *.bin
 *.onnx
 *.safetensors
-models/
+/models/
 data/
 uploads/
 

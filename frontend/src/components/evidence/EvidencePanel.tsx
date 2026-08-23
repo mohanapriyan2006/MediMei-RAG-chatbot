@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   ShieldCheck,
   FileSearch,
   BookOpen,
   X,
-  ExternalLink,
+  FileText,
 } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
+import { useDocuments } from '../../hooks/useDocuments'
 import { EvidenceCard } from './EvidenceCard'
+import { SourceViewerModal } from './SourceViewerModal'
 import type { Citation } from '../../types/chat'
 
 export interface EvidencePanelProps {
@@ -17,7 +19,15 @@ export interface EvidencePanelProps {
 
 export function EvidencePanel({ onClose, isMobileDrawer = false }: EvidencePanelProps) {
   const { activeCitations, selectedCitation, setSelectedCitation, isLoading } = useChat()
+  const { documents } = useDocuments()
   const [inspectModalCitation, setInspectModalCitation] = useState<Citation | null>(null)
+  const [sourceViewerOpen, setSourceViewerOpen] = useState(false)
+  const [sourceViewerCitation, setSourceViewerCitation] = useState<Citation | null>(null)
+
+  const sourceDocument = useMemo(
+    () => (sourceViewerCitation ? documents.find((d) => d.id === sourceViewerCitation.documentId) || null : null),
+    [documents, sourceViewerCitation],
+  )
 
   return (
     <aside className="flex h-full w-full flex-col border-l border-border bg-surface text-fg">
@@ -129,6 +139,12 @@ export function EvidencePanel({ onClose, isMobileDrawer = false }: EvidencePanel
                   <span className="font-bold text-accent">{inspectModalCitation.section}</span>
                 </div>
               )}
+              {inspectModalCitation.score != null && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-fg">Relevance:</span>
+                  <span className="font-bold text-success">{(inspectModalCitation.score * 100).toFixed(0)}% match</span>
+                </div>
+              )}
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-fg">Chunk ID:</span>
                 <span className="font-mono text-fg-muted">{inspectModalCitation.citationId}</span>
@@ -149,24 +165,37 @@ export function EvidencePanel({ onClose, isMobileDrawer = false }: EvidencePanel
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setInspectModalCitation(null)}
-                className="rounded-pill border border-border px-4 py-2 text-xs font-semibold text-fg hover:bg-surface-highlight"
-              >
-                Close
-              </button>
               <a
                 href={`/documents`}
+                className="rounded-pill border border-border px-4 py-2 text-xs font-semibold text-fg hover:bg-surface-highlight"
+              >
+                Open in Documents
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  setSourceViewerCitation(inspectModalCitation)
+                  setSourceViewerOpen(true)
+                  setInspectModalCitation(null)
+                }}
                 className="inline-flex items-center gap-1.5 rounded-pill bg-primary px-4 py-2 text-xs font-semibold text-white hover:bg-primary-hover"
               >
-                <span>View in Documents</span>
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
+                <FileText className="h-3.5 w-3.5" />
+                <span>View Source PDF</span>
+              </button>
             </div>
           </div>
         </div>
       )}
+      <SourceViewerModal
+        citation={sourceViewerCitation}
+        document={sourceDocument}
+        open={sourceViewerOpen}
+        onClose={() => {
+          setSourceViewerOpen(false)
+          setSourceViewerCitation(null)
+        }}
+      />
     </aside>
   )
 }

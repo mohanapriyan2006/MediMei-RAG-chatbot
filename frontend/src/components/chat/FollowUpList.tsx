@@ -5,6 +5,7 @@ interface FollowUpListProps {
   onSelect: (question: string) => void
 }
 
+
 export function FollowUpList({ questions, onSelect }: FollowUpListProps) {
   return (
     <div className="mt-4 flex flex-col gap-2">
@@ -26,3 +27,11 @@ export function FollowUpList({ questions, onSelect }: FollowUpListProps) {
     </div>
   )
 }
+
+
+
+
+
+
+
+

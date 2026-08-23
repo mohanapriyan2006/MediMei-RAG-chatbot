@@ -4,6 +4,7 @@ import { FileText, ShieldCheck } from 'lucide-react'
 import { ChatLayout } from '../components/layout/ChatLayout'
 import { DeleteDocumentDialog } from '../components/documents/DeleteDocumentDialog'
 import { DocumentList } from '../components/documents/DocumentList'
+import { DocumentViewerModal } from '../components/documents/DocumentViewerModal'
 import { DocumentSearch } from '../components/documents/DocumentSearch'
 import { DocumentUpload } from '../components/documents/DocumentUpload'
 import { useDocuments } from '../hooks/useDocuments'
@@ -14,6 +15,7 @@ import medicineVerificationImage from '../assets/medicine.png.png'
 export default function DocumentsPage() {
   const { deleteDocument, documents } = useDocuments()
   const [pendingDelete, setPendingDelete] = useState<Document | null>(null)
+  const [viewingDocument, setViewingDocument] = useState<Document | null>(null)
 
   const readyCount = documents.filter((d) => d.status === 'ready').length
 
@@ -27,7 +29,7 @@ export default function DocumentsPage() {
   return (
     <ChatLayout>
       <div className="flex-1 overflow-y-auto bg-background">
-        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8 space-y-4">
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 space-y-5">
           {/* Header */}
          <section className="pt-2 lg:pt-0">
               <div className="relative overflow-hidden rounded-3xl border border-border bg-surface p-4 shadow-card sm:p-6">
@@ -77,15 +79,28 @@ export default function DocumentsPage() {
               <DocumentSearch />
             </div>
 
-            <DocumentList onDelete={setPendingDelete} />
+            <DocumentList onDelete={setPendingDelete} onView={setViewingDocument} />
           </div>
         </div>
       </div>
+
+
+
+
+
+
+
 
       <DeleteDocumentDialog
         document={pendingDelete}
         onCancel={() => setPendingDelete(null)}
         onConfirm={handleConfirmDelete}
+      />
+
+      <DocumentViewerModal
+        document={viewingDocument}
+        open={!!viewingDocument}
+        onClose={() => setViewingDocument(null)}
       />
     </ChatLayout>
   )

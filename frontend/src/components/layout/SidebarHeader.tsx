@@ -1,4 +1,5 @@
 import { PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react'
+
 import { useUI } from '../../hooks/useUI'
 import { Tooltip } from '../common/Tooltip'
 import { GlobalSearchPanel } from './GlobalSearchPanel'
@@ -60,18 +61,18 @@ export function SidebarHeader({ onClose, collapsed }: SidebarHeaderProps) {
         <button
           type="button"
           onClick={toggleCollapse}
-          className="hidden h-8 w-8 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-surface-highlight hover:text-fg lg:flex"
+          className="hidden h-6 w-6 items-center justify-center rounded-[6px] text-text-muted transition-colors hover:bg-surface-raised hover:text-text-primary lg:flex cursor-pointer"
           aria-label="Collapse sidebar"
           title="Collapse sidebar"
         >
-          <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+          <PanelLeftClose className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
 
         {onClose && (
           <button
             type="button"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-surface-highlight hover:text-fg lg:hidden"
+            className="flex h-6 w-6 items-center justify-center rounded-[6px] text-text-muted transition-colors hover:bg-surface-raised hover:text-text-primary lg:hidden cursor-pointer"
             aria-label="Close sidebar"
           >
             <X className="h-4 w-4" aria-hidden="true" />
@@ -82,4 +83,11 @@ export function SidebarHeader({ onClose, collapsed }: SidebarHeaderProps) {
       <GlobalSearchPanel />
     </div>
   )
+
 }
+
+
+
+
+
+

@@ -1,6 +1,8 @@
+import { MarkdownResponse } from '../common/MarkdownResponse'
 import type { ComparisonResult, ComparisonCitation } from '../../types/comparison'
 import { ComparisonHeader } from './ComparisonHeader'
 import { ComparisonRow } from './ComparisonRow'
+import { ComparisonCitationBadge } from './ComparisonCitationBadge'
 
 interface ComparisonTableProps {
   result: ComparisonResult
@@ -115,23 +117,25 @@ function MobileCell({
 
   return (
     <div className={`px-4 py-3 ${cell.status === 'warning' ? 'bg-warning/5' : cell.status === 'highlight' ? 'bg-primary/[0.03]' : ''}`}>
-      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-accent">{drugName}</p>
+      <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-accent">{drugName}</p>
       {isUnavailable ? (
         <p className="italic text-fg-muted text-[13px]">Not available in source document.</p>
       ) : (
         <>
-          <p className="text-sm leading-6 text-fg">{cell.content}</p>
+          <MarkdownResponse
+            content={cell.content}
+            citations={cell.citations}
+            onCitationClick={(c) => onCitationClick?.(c as ComparisonCitation)}
+            compact
+          />
           {cell.citations.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-2.5 flex flex-wrap gap-1.5 pt-1.5 border-t border-border/40">
               {cell.citations.map((c) => (
-                <button
+                <ComparisonCitationBadge
                   key={c.citationId}
-                  type="button"
-                  onClick={() => onCitationClick?.(c)}
-                  className="inline-flex items-center gap-1 rounded-pill border border-border bg-surface px-2 py-0.5 text-[11px] font-semibold text-fg hover:border-primary hover:text-primary transition-colors"
-                >
-                  Page {c.page}
-                </button>
+                  citation={c}
+                  onClick={onCitationClick}
+                />
               ))}
             </div>
           )}

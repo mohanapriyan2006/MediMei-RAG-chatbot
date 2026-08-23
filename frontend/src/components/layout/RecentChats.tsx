@@ -6,6 +6,7 @@ import { Tooltip } from '../common/Tooltip'
 import { useNavigate } from 'react-router-dom'
 interface RecentChatsProps {
   collapsed: boolean
+  onClose?: () => void
 }
 
 export function RecentChats({ collapsed }: RecentChatsProps) {
@@ -265,3 +266,9 @@ export function RecentChats({ collapsed }: RecentChatsProps) {
     </nav>
   )
 }
+
+
+
+
+
+

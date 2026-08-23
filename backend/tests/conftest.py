@@ -62,6 +62,11 @@ sys.modules['qdrant_client'] = qdrant_client_mock
 
 # 3. Mock llama-cpp-python to avoid loading local GGUFs
 llama_cpp_mock = MagicMock()
+mock_llama_inst = MagicMock()
+mock_llama_inst.return_value = {
+    "choices": [{"text": "The recommended dose of Rinvoq is 15 mg. [S1]"}]
+}
+llama_cpp_mock.Llama = MagicMock(return_value=mock_llama_inst)
 sys.modules['llama_cpp'] = llama_cpp_mock
 
 # 4. Mock fitz (PyMuPDF) globally if needed, though we test it in test_pdf.py with explicit patches

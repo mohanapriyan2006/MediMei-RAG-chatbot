@@ -12,18 +12,25 @@ import type { ComparisonResult } from '../types/comparison'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_COMPARE === 'true'
 
-export async function compareDrugs(drug1Id: string, drug2Id: string): Promise<ComparisonResult> {
-  if (USE_MOCK) {
-    return mockCompareDrugs(drug1Id, drug2Id)
+export async function compareDrugs(
+  drug1Id: string,
+  drug2Id: string,
+  signal?: AbortSignal,
+): Promise<ComparisonResult> {
+  if (signal?.aborted) {
+    throw new DOMException('Cancelled by user', 'AbortError')
   }
-  return compareDrugsApi(drug1Id, drug2Id)
+  if (USE_MOCK) {
+    return mockCompareDrugs(drug1Id, drug2Id, signal)
+  }
+  return compareDrugsApi(drug1Id, drug2Id, signal)
 }
 
 /* ------------------------------------------------------------------ */
 /* MOCK — isolated, clearly marked, development-only                   */
 /* ------------------------------------------------------------------ */
 
-function mockCompareDrugs(drug1Id: string, drug2Id: string): Promise<ComparisonResult> {
+function mockCompareDrugs(drug1Id: string, drug2Id: string, signal?: AbortSignal): Promise<ComparisonResult> {
   const result: ComparisonResult = {
     drug1: {
       id: drug1Id,
@@ -276,5 +283,23 @@ function mockCompareDrugs(drug1Id: string, drug2Id: string): Promise<ComparisonR
     ],
   }
 
-  return new Promise((resolve) => setTimeout(() => resolve(result), 1200))
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Cancelled by user', 'AbortError'))
+      return
+    }
+    const timer = setTimeout(() => {
+      if (signal?.aborted) {
+        reject(new DOMException('Cancelled by user', 'AbortError'))
+      } else {
+        resolve(result)
+      }
+    }, 1200)
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer)
+        reject(new DOMException('Cancelled by user', 'AbortError'))
+      })
+    }
+  })
 }

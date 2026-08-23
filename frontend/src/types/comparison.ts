@@ -2,7 +2,7 @@ import type { Citation } from './chat'
 
 export type ComparisonCellStatus = 'normal' | 'warning' | 'highlight' | 'unavailable'
 
-export interface ComparisonCitation extends Citation {}
+export type ComparisonCitation = Citation
 
 export interface ComparisonCell {
   content: string
@@ -26,10 +26,31 @@ export interface DrugInfo {
   pageCount?: number
 }
 
+export interface ComparisonSummary {
+  totalAttributes: number
+  warningCount: number
+  highlightCount: number
+  unavailableCount: number
+  bothUnavailableCount: number
+}
+
 export interface ComparisonResult {
   drug1: DrugInfo
   drug2: DrugInfo
   attributes: ComparisonAttribute[]
+  summary?: ComparisonSummary
+}
+
+export interface SavedComparison {
+  id: string
+  title: string
+  drug1Id: string
+  drug2Id: string
+  drug1Name: string
+  drug2Name: string
+  savedAt: string
+  notes?: string
+  result: ComparisonResult
 }
 
 export const COMPARISON_ATTRIBUTE_KEYS = [

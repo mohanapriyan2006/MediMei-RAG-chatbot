@@ -5,10 +5,11 @@ import { DocumentCard } from './DocumentCard'
 
 interface DocumentListProps {
   onDelete: (doc: Document) => void
+  onView?: (doc: Document) => void
   selectedDocumentId?: string | null
 }
 
-export function DocumentList({ onDelete, selectedDocumentId }: DocumentListProps) {
+export function DocumentList({ onDelete, onView, selectedDocumentId }: DocumentListProps) {
   const { filteredDocuments, documents } = useDocuments()
 
   if (documents.length === 0) {
@@ -44,9 +45,18 @@ export function DocumentList({ onDelete, selectedDocumentId }: DocumentListProps
           key={doc.id}
           document={doc}
           onDelete={onDelete}
+          onView={onView}
           isSelected={selectedDocumentId === doc.id}
         />
       ))}
     </div>
   )
 }
+
+
+
+
+
+
+
+

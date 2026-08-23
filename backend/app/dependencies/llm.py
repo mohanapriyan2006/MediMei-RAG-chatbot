@@ -34,10 +34,12 @@ class _LlamaCppClient:
             model_path=model_path,
             n_ctx=settings.LLM_N_CTX,
             n_gpu_layers=n_gpu,
+            verbose=False,
         )
 
     def __call__(self, prompt, **kwargs):
-        return self.model(prompt, **kwargs)
+        clean_kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        return self.model(prompt, **clean_kwargs)
 
 
 class _Gpt4AllClient:

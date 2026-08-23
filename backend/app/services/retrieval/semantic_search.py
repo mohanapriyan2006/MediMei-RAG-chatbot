@@ -32,7 +32,8 @@ async def semantic_search(
             "page_no": point.payload.get("page_no"),
             "section": point.payload.get("section"),
             "text": point.payload.get("text") or point.payload.get("chunk_text"),
-            "score": point.score
+            "score": point.score,
+            "quality_score": point.payload.get("quality_score", 1.0)
         })
 
     return results

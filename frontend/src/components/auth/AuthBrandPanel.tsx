@@ -46,6 +46,7 @@ export function AuthBrandPanel() {
       <div className="relative z-10 text-xs text-white/60">
         © {new Date().getFullYear()} MediMei. Cognizant NPN Healthcare AI Initiative.
       </div>
+
     </div>
   )
 }

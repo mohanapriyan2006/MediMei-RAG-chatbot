@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from typing import Callable, Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,11 +9,14 @@ from app.models.chunk import Chunk
 from app.models.document import Document
 from app.services.embeddings.embedding_service import embedding_service
 from app.repositories.qdrant_repository import qdrant_repository
+from app.services.pdf.cleaner import clean_text
+from app.core.task_manager import task_manager, TaskCancelledError
 
 logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
+EMBEDDING_BATCH_SIZE = 32
 
 
 def split_text(text):
@@ -40,7 +45,10 @@ def split_text(text):
 
 async def create_chunks(
     document_id: str,
-    db: AsyncSession
+    db: AsyncSession,
+    task_id: str = "",
+    on_progress: Optional[Callable[[int, int, str], None]] = None,
+    page_ocr_confidence: Optional[dict] = None,
 ):
     """
     Chunk document page text, save chunks to MySQL, generate embeddings,
@@ -62,6 +70,15 @@ async def create_chunks(
         .order_by(DocumentPage.page_no)
     )
     pages = result.scalars().all()
+    page_quality_map = {
+        page.page_no: (page.quality_score if page.quality_score is not None else 1.0)
+        for page in pages
+    }
+    page_ocr_conf_map = page_ocr_confidence or {}
+    page_extraction_method_map = {
+        page.page_no: page.extraction_method
+        for page in pages
+    }
 
     if not pages:
         logger.warning(f"No pages found for document {document_id}.")
@@ -71,16 +88,20 @@ async def create_chunks(
     await db.execute(
         delete(Chunk).where(Chunk.document_id == document_id)
     )
-    await qdrant_repository.delete_document_chunks(document_id)
+    try:
+        await qdrant_repository.delete_document_chunks(document_id)
+    except Exception as exc:
+        logger.warning(f"Qdrant cleanup failed for {document_id}: {exc}")
     await db.flush()
 
     # 4. Perform text chunking on each page
     total_chunks = 0
     for page in pages:
-        if not page.text_ref:
+        cleaned_text = clean_text(page.text_ref)
+        if not cleaned_text:
             continue
 
-        page_chunks = split_text(page.text_ref)
+        page_chunks = split_text(cleaned_text)
 
         for index, text in enumerate(page_chunks):
             chunk = Chunk(
@@ -108,19 +129,45 @@ async def create_chunks(
     )
     db_chunks = chunks_result.scalars().all()
 
-    # 6. Batch embed all chunk texts for utmost efficiency
+    # 6. Batch embed all chunk texts in small batches with progress updates
+    await task_manager.raise_if_cancelled(task_id)
     logger.info(f"Generating embeddings for {len(db_chunks)} chunks of document: {doc.file_name}")
     chunk_texts = [c.chunk_text for c in db_chunks]
-    embeddings = embedding_service.create_embeddings(chunk_texts)
 
-    # 7. Index chunks in Qdrant Vector DB
+    all_embeddings: list = []
+    total_batches = (len(chunk_texts) + EMBEDDING_BATCH_SIZE - 1) // EMBEDDING_BATCH_SIZE
+
+    try:
+        for batch_idx in range(total_batches):
+            await task_manager.raise_if_cancelled(task_id)
+
+            start_idx = batch_idx * EMBEDDING_BATCH_SIZE
+            end_idx = min(start_idx + EMBEDDING_BATCH_SIZE, len(chunk_texts))
+            batch_texts = chunk_texts[start_idx:end_idx]
+
+            batch_embeddings = await asyncio.to_thread(
+                embedding_service.create_embeddings, batch_texts
+            )
+            all_embeddings.extend(batch_embeddings)
+
+            if on_progress:
+                on_progress(end_idx, len(chunk_texts), "embedding")
+
+    except Exception as exc:
+        logger.error(f"Embedding generation failed for {document_id}: {exc}")
+        # Chunks are saved in MySQL; Qdrant indexing will be skipped.
+        return total_chunks
+
+    await task_manager.raise_if_cancelled(task_id)
+
+    # 7. Index chunks in Qdrant Vector DB (best-effort — chunks are already in MySQL)
     logger.info(f"Indexing {len(db_chunks)} chunks in Qdrant for document: {doc.file_name}")
 
     # Make sure Qdrant collection is created with the real model dimension.
     qdrant_repository.set_vector_size(embedding_service.vector_size)
 
     qdrant_chunks = []
-    for chunk, emb in zip(db_chunks, embeddings):
+    for chunk, emb in zip(db_chunks, all_embeddings):
         qdrant_chunks.append({
             "chunk_id": chunk.chunk_id,  # BigInteger MySQL primary key serves as Qdrant ID
             "document_id": document_id,
@@ -129,10 +176,19 @@ async def create_chunks(
             "section": chunk.section,
             "chunk_index": chunk.chunk_index,
             "chunk_text": chunk.chunk_text,
-            "embedding": emb
+            "embedding": emb,
+            "quality_score": page_quality_map.get(chunk.page_no, 1.0),
+            "ocr_confidence": page_ocr_conf_map.get(chunk.page_no),
+            "extraction_method": page_extraction_method_map.get(chunk.page_no),
         })
 
-    await qdrant_repository.add_chunks(qdrant_chunks)
-    logger.info(f"Successfully chunked and indexed {total_chunks} chunks for document: {doc.file_name}")
+    try:
+        await qdrant_repository.add_chunks(qdrant_chunks)
+        logger.info(f"Successfully chunked and indexed {total_chunks} chunks for document: {doc.file_name}")
+    except Exception as exc:
+        logger.warning(
+            f"Qdrant indexing failed for {document_id}: {exc}. "
+            f"Chunks saved to MySQL but not vector-indexed."
+        )
 
     return total_chunks

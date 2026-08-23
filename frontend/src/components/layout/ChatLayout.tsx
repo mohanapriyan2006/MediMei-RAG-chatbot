@@ -1,7 +1,8 @@
 import { Menu } from 'lucide-react'
-import { useUI } from '../../hooks/useUI'
 import { MobileSidebar } from './MobileSidebar'
 import { Sidebar } from './Sidebar'
+import { useUI } from '../../hooks/useUI'
+import { GlobalTaskIndicator } from '../common/GlobalTaskIndicator'
 
 interface ChatLayoutProps {
   children: React.ReactNode
@@ -9,7 +10,6 @@ interface ChatLayoutProps {
 
 export function ChatLayout({ children }: ChatLayoutProps) {
   const { isMobile, toggleSidebar } = useUI()
-
   return (
     <div className="app-shell flex h-screen w-full overflow-hidden text-fg">
       <div className="hidden shrink-0 lg:block lg:sticky lg:top-0 lg:h-screen">
@@ -25,8 +25,8 @@ export function ChatLayout({ children }: ChatLayoutProps) {
         {isMobile && (
           <header className="flex items-center justify-between border-b border-border bg-surface px-4 py-3 shadow-subtle">
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-primary text-white">
-                <span className="text-sm font-bold">L</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-primary text-white shadow-subtle transition-all duration-200 group-hover:shadow-card">
+                <img src="/logo.png" alt="MediMei" className="h-8 w-8 object-contain" />
               </div>
               <span className="text-[15px] font-semibold tracking-tight text-fg">
                 MediMei
@@ -44,6 +44,7 @@ export function ChatLayout({ children }: ChatLayoutProps) {
         )}
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <GlobalTaskIndicator />
           {children}
         </div>
       </main>

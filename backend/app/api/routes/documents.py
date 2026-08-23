@@ -10,6 +10,7 @@ from fastapi import (
     UploadFile,
     File,
     BackgroundTasks,
+    Header,
     status
 )
 from fastapi.responses import FileResponse
@@ -32,9 +33,12 @@ from app.schemas.document import (
 )
 
 from app.services.pdf.extractor import extract_pdf_pages
+from app.services.pdf.pipeline import extract_image_page
+from app.services.pdf.ocr import IMAGE_EXTENSIONS
 from app.services.chunking.chunker import create_chunks
 
 from app.core.config import settings
+from app.core.task_manager import task_manager, TaskCancelledError
 
 
 logger = logging.getLogger(__name__)
@@ -67,18 +71,21 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 async def simulate_processing_task(
     document_id: str,
-    db_session_factory
+    db_session_factory,
+    task_id: str = "",
 ):
     """
     Process document:
 
     PDF
       ↓
-    Extract pages
+    Extract pages (with progress updates)
       ↓
     Save document_pages
       ↓
-    Create chunks
+    Create chunks + embeddings (with progress updates)
+      ↓
+    Index in Qdrant
       ↓
     Mark document completed
     """
@@ -90,6 +97,8 @@ async def simulate_processing_task(
     async for db in db_session_factory():
 
         try:
+
+            await task_manager.raise_if_cancelled(task_id)
 
             # -----------------------------------------
             # 1. Find document
@@ -109,18 +118,23 @@ async def simulate_processing_task(
                 )
                 return
 
+            await task_manager.raise_if_cancelled(task_id)
 
             # -----------------------------------------
-            # 2. Update status
+            # 2. Update status → processing
             # -----------------------------------------
 
             doc.status = "processing"
+            doc.stage = "extraction"
+            doc.progress = 0
+            doc.progress_detail = "Starting extraction…"
 
             await db.commit()
 
+            await task_manager.raise_if_cancelled(task_id)
 
             # -----------------------------------------
-            # 3. Find uploaded PDF
+            # 3. Find uploaded file
             # -----------------------------------------
 
             file_path = os.path.join(
@@ -129,32 +143,74 @@ async def simulate_processing_task(
             )
 
             logger.info(
-                f"Reading PDF from: {file_path}"
+                f"Reading file from: {file_path}"
             )
 
             if not os.path.exists(file_path):
 
                 raise FileNotFoundError(
-                    f"PDF file not found: {file_path}"
+                    f"File not found: {file_path}"
                 )
 
-
             # -----------------------------------------
-            # 4. Extract PDF pages
+            # 4. Extract pages (with progress)
+            #    Dispatch based on file type:
+            #    .pdf → PDF processor (PyMuPDF + OCR fallback)
+            #    image extensions → image OCR processor
             # -----------------------------------------
 
-            pages = extract_pdf_pages(file_path)
+            file_ext = os.path.splitext(file_path)[1].lower()
+            is_image = file_ext in IMAGE_EXTENSIONS
+
+            async def on_extraction_progress(current, total, stage):
+                pct = int((current / total) * 50) if total > 0 else 0
+                doc.stage = "extraction"
+                doc.progress = pct
+                doc.progress_detail = f"Extracting page {current}/{total}"
+                try:
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+
+            try:
+                if is_image:
+                    logger.info("Processing image file %s via OCR", file_path)
+                    pages = await extract_image_page(
+                        file_path,
+                        document_id=document_id,
+                    )
+                    # Update progress for single-page image
+                    if on_extraction_progress:
+                        await on_extraction_progress(1, 1, "extracting")
+                else:
+                    pages = await extract_pdf_pages(
+                        file_path,
+                        document_id=document_id,
+                        task_id=task_id,
+                        on_progress=on_extraction_progress,
+                    )
+            except Exception as exc:
+                logger.error("Document extraction failed: %s", exc)
+                raise
+
+            await task_manager.raise_if_cancelled(task_id)
 
             if not pages:
-
-                raise ValueError(
-                    "No pages were extracted from the PDF."
+                logger.warning(
+                    "No pages were extracted from %s; completing with empty document.",
+                    file_path,
                 )
+                doc.status = "completed"
+                doc.stage = "completed"
+                doc.progress = 100
+                doc.progress_detail = "No pages extracted"
+                doc.page_count = 0
+                await db.commit()
+                return
 
             logger.info(
                 f"Extracted {len(pages)} pages."
             )
-
 
             # -----------------------------------------
             # 5. Remove old page records
@@ -174,12 +230,20 @@ async def simulate_processing_task(
 
             await db.flush()
 
+            await task_manager.raise_if_cancelled(task_id)
 
             # -----------------------------------------
             # 6. Save extracted pages
             # -----------------------------------------
 
+            doc.stage = "saving_pages"
+            doc.progress = 55
+            doc.progress_detail = f"Saving {len(pages)} pages…"
+            await db.commit()
+
             for page in pages:
+
+                await task_manager.raise_if_cancelled(task_id)
 
                 document_page = DocumentPage(
                     document_id=document_id,
@@ -193,20 +257,43 @@ async def simulate_processing_task(
 
             await db.commit()
 
-
             logger.info(
                 f"Saved {len(pages)} document pages "
                 f"for document {document_id}"
             )
 
+            # -----------------------------------------
+            # 7. Create chunks + embeddings (with progress)
+            # -----------------------------------------
 
-            # -----------------------------------------
-            # 7. Create chunks
-            # -----------------------------------------
+            doc.stage = "chunking"
+            doc.progress = 60
+            doc.progress_detail = "Chunking text and generating embeddings…"
+            await db.commit()
+
+            await task_manager.raise_if_cancelled(task_id)
+
+            async def on_embedding_progress(current, total, stage):
+                # Embedding progress maps to 60%–95% range
+                pct = 60 + int((current / total) * 35) if total > 0 else 60
+                doc.stage = "embedding"
+                doc.progress = pct
+                doc.progress_detail = f"Embedding chunk {current}/{total}"
+                try:
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
 
             chunk_count = await create_chunks(
                 document_id,
-                db
+                db,
+                task_id=task_id,
+                on_progress=on_embedding_progress,
+                page_ocr_confidence={
+                    p["page_no"]: p.get("ocr_confidence")
+                    for p in pages
+                    if p.get("ocr_confidence") is not None
+                },
             )
 
             logger.info(
@@ -214,12 +301,17 @@ async def simulate_processing_task(
                 f"for document {document_id}"
             )
 
+            await task_manager.raise_if_cancelled(task_id)
 
             # -----------------------------------------
             # 8. Mark document completed
             # -----------------------------------------
 
             doc.status = "completed"
+            doc.stage = "completed"
+            doc.progress = 100
+            doc.progress_detail = f"Ready — {len(pages)} pages, {chunk_count} chunks"
+            doc.page_count = len(pages)
 
             await db.commit()
 
@@ -229,13 +321,31 @@ async def simulate_processing_task(
             )
 
 
+        except TaskCancelledError:
+            logger.info("Document processing cancelled for %s", document_id)
+            try:
+                await db.rollback()
+                result = await db.execute(
+                    select(Document).filter(
+                        Document.document_id == document_id
+                    )
+                )
+                doc = result.scalar_one_or_none()
+                if doc:
+                    doc.status = "failed"
+                    doc.stage = "cancelled"
+                    doc.progress_detail = "Processing cancelled by user"
+                    await db.commit()
+            except Exception:
+                await db.rollback()
+            return
+
         except Exception as e:
 
             logger.error(
                 f"Error processing document "
                 f"{document_id}: {str(e)}"
             )
-
 
             # -----------------------------------------
             # Mark document as failed
@@ -256,6 +366,8 @@ async def simulate_processing_task(
                 if doc:
 
                     doc.status = "failed"
+                    doc.stage = "failed"
+                    doc.progress_detail = f"Error: {str(e)[:200]}"
 
                     await db.commit()
 
@@ -281,18 +393,20 @@ async def upload_document(
     file: UploadFile = File(...),
     source: str = None,
     version: str = "1.0",
+    x_task_id: str = Header(default=""),
     db: AsyncSession = Depends(get_db_session)
 ):
 
     # -----------------------------------------
-    # 1. Validate PDF
+    # 1. Validate file format
     # -----------------------------------------
 
-    if not file.filename.lower().endswith(".pdf"):
+    allowed_extensions = (".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif")
+    if not file.filename.lower().endswith(allowed_extensions):
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file format. Only PDF files are supported."
+            detail="Invalid file format. Only PDF, DOCX, DOC, and image files (PNG, JPG, JPEG, WEBP, BMP, TIFF) are supported."
         )
 
 
@@ -397,6 +511,8 @@ async def upload_document(
 
     await db.refresh(new_doc)
 
+    new_doc.file_size = len(content)
+    new_doc.page_count = 0
 
     # -----------------------------------------
     # 5. Start processing
@@ -405,7 +521,8 @@ async def upload_document(
     background_tasks.add_task(
         simulate_processing_task,
         doc_id,
-        get_db_session
+        get_db_session,
+        task_id=x_task_id,
     )
 
 
@@ -439,6 +556,18 @@ async def list_documents(
     )
 
     documents = result.scalars().all()
+
+    from sqlalchemy import func
+    page_counts_result = await db.execute(
+        select(DocumentPage.document_id, func.count(DocumentPage.page_no))
+        .group_by(DocumentPage.document_id)
+    )
+    page_counts = {doc_id: count for doc_id, count in page_counts_result.all()}
+
+    for doc in documents:
+        doc.page_count = page_counts.get(doc.document_id, 0)
+        file_path = os.path.join(UPLOAD_DIR, f"{doc.document_id}_{doc.file_name}")
+        doc.file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
 
     return [
         DocumentResponse.model_validate(doc)
@@ -474,6 +603,15 @@ async def get_document(
             detail="Document not found."
         )
 
+    from sqlalchemy import func
+    page_count_result = await db.execute(
+        select(func.count(DocumentPage.page_no))
+        .where(DocumentPage.document_id == document_id)
+    )
+    doc.page_count = page_count_result.scalar() or 0
+    file_path = os.path.join(UPLOAD_DIR, f"{doc.document_id}_{doc.file_name}")
+    doc.file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+
     return DocumentResponse.model_validate(doc)
 
 
@@ -488,6 +626,7 @@ async def get_document(
 async def process_document(
     document_id: str,
     background_tasks: BackgroundTasks,
+    x_task_id: str = Header(default=""),
     db: AsyncSession = Depends(get_db_session)
 ):
 
@@ -529,7 +668,8 @@ async def process_document(
     background_tasks.add_task(
         simulate_processing_task,
         document_id,
-        get_db_session
+        get_db_session,
+        task_id=x_task_id,
     )
 
 
@@ -630,6 +770,16 @@ async def update_document(
 
     await db.commit()
     await db.refresh(doc)
+
+    from sqlalchemy import func
+    page_count_result = await db.execute(
+        select(func.count(DocumentPage.page_no))
+        .where(DocumentPage.document_id == document_id)
+    )
+    doc.page_count = page_count_result.scalar() or 0
+    file_path = os.path.join(UPLOAD_DIR, f"{doc.document_id}_{doc.file_name}")
+    doc.file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+
     return DocumentResponse.model_validate(doc)
 
 
@@ -659,7 +809,9 @@ async def get_document_status(
     return DocumentStatusResponse(
         document_id=doc.document_id,
         status=doc.status,
-        stage=doc.status,
+        stage=doc.stage or doc.status,
+        progress=doc.progress or 0,
+        progress_detail=doc.progress_detail,
         message=f"Document is currently {doc.status}."
     )
 
@@ -673,6 +825,7 @@ async def view_document(
     document_id: str,
     db: AsyncSession = Depends(get_db_session)
 ):
+    import mimetypes
     result = await db.execute(
         select(Document).filter(Document.document_id == document_id)
     )
@@ -692,11 +845,49 @@ async def view_document(
     if not os.path.exists(file_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="PDF file not found on disk."
+            detail="Document file not found on disk."
         )
+
+    content_type, _ = mimetypes.guess_type(doc.file_name)
+    if not content_type:
+        if doc.file_name.lower().endswith(".docx"):
+            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif doc.file_name.lower().endswith(".doc"):
+            content_type = "application/msword"
+        elif doc.file_name.lower().endswith(".pdf"):
+            content_type = "application/pdf"
+        else:
+            content_type = "application/octet-stream"
 
     return FileResponse(
         file_path,
-        media_type="application/pdf",
+        media_type=content_type,
         filename=doc.file_name
     )
+
+
+# =====================================================
+# GET DOCUMENT CHUNKS / EXTRACTED TEXT
+# =====================================================
+
+@router.get("/{document_id}/chunks")
+async def get_document_chunks(
+    document_id: str,
+    db: AsyncSession = Depends(get_db_session)
+):
+    from app.models.chunk import Chunk
+    result = await db.execute(
+        select(Chunk)
+        .filter(Chunk.document_id == document_id)
+        .order_by(Chunk.page_no, Chunk.chunk_index)
+    )
+    chunks = result.scalars().all()
+    return [
+        {
+            "chunk_id": str(c.chunk_id),
+            "page_no": c.page_no or 1,
+            "section": c.section or "Document Content",
+            "text": c.chunk_text or ""
+        }
+        for c in chunks
+    ]

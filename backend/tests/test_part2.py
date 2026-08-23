@@ -105,7 +105,7 @@ async def test_semantic_search_returns_structured_results():
     mock_qdrant.search = AsyncMock(return_value=[mock_point])
 
     service = SemanticSearchService(embedding_svc=mock_emb, qdrant_repo=mock_qdrant)
-    results = await service.search("What is the dose?", top_k=3)
+    results = await service.search("What is the dose?", top_k=3, rerank=False)
 
     assert len(results) == 1
     assert results[0]["chunk_id"] == "c1"
@@ -132,6 +132,7 @@ async def test_semantic_search_passes_filters():
         section="DOSAGE AND ADMINISTRATION",
         version="v1",
         score_threshold=0.5,
+        rerank=False,
     )
 
     _, kwargs = mock_qdrant.search.await_args

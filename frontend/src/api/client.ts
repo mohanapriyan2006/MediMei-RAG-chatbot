@@ -31,6 +31,11 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   const token = localStorage.getItem('labelproof_token')
   const headers: Record<string, string> = {}
 
+  const taskId = typeof window !== 'undefined' ? (window as unknown as Record<string, string | undefined>).__medimeiTaskId : undefined
+  if (taskId) {
+    headers['X-Task-Id'] = taskId
+  }
+
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
@@ -61,7 +66,9 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     headers,
   })
 
-  if (res.status === 401) {
+  const isLoginPath = path === '/api/v1/auth/login'
+
+  if (res.status === 401 && !isLoginPath) {
     localStorage.removeItem('labelproof_token')
     window.dispatchEvent(new CustomEvent(AUTH_LOGOUT_EVENT))
     throw new Error('Session expired. Please sign in again.')

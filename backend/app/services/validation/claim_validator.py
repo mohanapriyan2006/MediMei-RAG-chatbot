@@ -4,6 +4,20 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+FREQUENCY_GROUPS = {
+    "once daily": ["once daily", "1x daily", "qd", "once-daily", "daily", "once a day", "15 mg once daily"],
+    "twice daily": ["twice daily", "2x daily", "bid", "twice-daily", "twice a day"],
+    "three times daily": ["three times daily", "3x daily", "tid", "three times a day"],
+    "four times daily": ["four times daily", "4x daily", "qid", "four times a day"],
+    "weekly": ["weekly", "once weekly", "once-weekly", "once a week"],
+}
+
+CONTRAINDICATION_SYNONYMS = [
+    "contraindicated", "must not", "do not use", "avoid", "should not", 
+    "not recommended", "warnings", "precaution", "risk", "harmful", "unsafe",
+    "serious risk", "boxed warning", "adverse", "contraindication"
+]
+
 class ClaimValidator:
     """
     Performs strict checks on high-risk medical values (dosages, strengths, frequencies,
@@ -91,7 +105,15 @@ class ClaimValidator:
         # 2. Frequency Validation
         answer_frequencies = self.extract_frequencies(draft_answer)
         for freq in answer_frequencies:
-            if freq not in combined_evidence.lower():
+            # Find matching group
+            matched_group = [freq]
+            for g_key, g_vals in FREQUENCY_GROUPS.items():
+                if freq in g_vals:
+                    matched_group = g_vals
+                    break
+            
+            # Check if any synonym in the group is in evidence
+            if not any(val in combined_evidence.lower() for val in matched_group):
                 failed_checks.append({
                     "type": "unsupported_frequency",
                     "value": freq,
@@ -101,15 +123,14 @@ class ClaimValidator:
         # 3. Severe Negative Contraindications Warnings check (basic sanity check)
         contra_keywords = ["contraindicated", "must not", "do not use", "avoid"]
         for kw in contra_keywords:
-            if kw in draft_answer.lower() and kw not in combined_evidence.lower():
-                # If the LLM generates a contraindication keyword that doesn't appear in the source context,
-                # check if there's any synonym or if it's hallucinated safety advice.
-                # Highlight as warning
-                failed_checks.append({
-                    "type": "fabricated_contraindication",
-                    "value": kw,
-                    "detail": f"Safety constraint keyword '{kw}' appears in the answer but is not found in the evidence."
-                })
+            if kw in draft_answer.lower():
+                # Check if any contraindication synonym/keyword exists in the evidence
+                if not any(syn in combined_evidence.lower() for syn in CONTRAINDICATION_SYNONYMS):
+                    failed_checks.append({
+                        "type": "fabricated_contraindication",
+                        "value": kw,
+                        "detail": f"Safety constraint keyword '{kw}' appears in the answer but is not found in the evidence."
+                    })
 
         valid = len(failed_checks) == 0
 

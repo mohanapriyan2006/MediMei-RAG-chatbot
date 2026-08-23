@@ -24,9 +24,12 @@ async def get_citation(
         )
         
     return Citation(
+        citation_id=citation.citation_id,
         document_id=citation.document_id,
         document_name=citation.document_name or "Unknown Document",
         page=citation.page_no,
         section=citation.section,
-        chunk_id=citation.chunk_id
+        chunk_id=citation.chunk_id,
+        text=citation.text,
+        score=citation.score
     )

@@ -11,4 +11,7 @@ export interface Document {
   source?: string
   version?: string
   isActive?: boolean
+  stage?: string
+  progress?: number
+  progressDetail?: string
 }

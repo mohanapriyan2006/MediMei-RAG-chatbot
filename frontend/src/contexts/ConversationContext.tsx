@@ -40,8 +40,8 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
       try {
         const res = await listSessions()
         setConversations(res.map(toConversationSummary))
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to load chat history')
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to load chat history')
       }
     }
 
@@ -57,8 +57,8 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
       setConversations((prev) =>
         prev.map((c) => (c.id === id ? { ...c, title: title.trim() } : c)),
       )
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to rename chat')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to rename chat')
     }
   }
 
@@ -68,8 +68,8 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
       setConversations((prev) => prev.filter((c) => c.id !== id))
       setActiveConversationId((prev) => (prev === id ? null : prev))
       toast.success('Chat deleted')
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete chat')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete chat')
     }
   }
 

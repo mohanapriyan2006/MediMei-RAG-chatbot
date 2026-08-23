@@ -27,6 +27,7 @@ async def search(request: SearchRequest) -> SearchResponse:
             section=request.section,
             version=request.version,
             score_threshold=request.score_threshold,
+            rerank=request.rerank,
         )
         return SearchResponse(query=request.query, results=results)
     except ValueError as exc:

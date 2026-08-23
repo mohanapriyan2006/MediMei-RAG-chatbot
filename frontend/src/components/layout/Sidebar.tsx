@@ -1,11 +1,11 @@
-import { FileText, Plus, GitCompareArrows } from 'lucide-react'
+import { FileText, Plus, Brain } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useChat } from '../../hooks/useChat'
 import { useConversations } from '../../hooks/useConversations'
 import { useDocuments } from '../../hooks/useDocuments'
 import { useUI } from '../../hooks/useUI'
-import { RecentChats } from './RecentChats'
 import { SidebarHeader } from './SidebarHeader'
+import { RecentChats } from './RecentChats'
 import { UserProfile } from './UserProfile'
 import ThemeToggle from '../common/ThemeToggle'
 import { ThemeToggle as ThemeToggleLong } from './ThemeToggle'
@@ -15,14 +15,13 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onClose }: SidebarProps) {
-  const { sidebarCollapsed } = useUI()
   const { clearChat } = useChat()
   const { newConversation } = useConversations()
+  const { sidebarCollapsed } = useUI()
   const navigate = useNavigate();
   useDocuments()
   const location = useLocation()
   const collapsed = sidebarCollapsed
-  const isCompareActive = location.pathname === '/compare'
 
   const handleNewChat = () => {
     clearChat();
@@ -57,13 +56,13 @@ export function Sidebar({ onClose }: SidebarProps) {
           </Link>
 
           <Link
-            to="/compare"
+            to="/memories"
             onClick={onClose}
-            className={`flex h-9 w-9 items-center justify-center rounded-2xl transition-colors hover:bg-surface-highlight ${isCompareActive ? 'bg-surface-highlight text-primary' : 'text-fg-muted hover:text-primary'}`}
-            aria-label="Compare drugs"
-            title="Compare Drugs"
+            className={`flex h-9 w-9 items-center justify-center rounded-2xl transition-colors hover:bg-surface-highlight ${location.pathname === '/memories' ? 'bg-surface-highlight text-primary' : 'text-fg-muted hover:text-primary'}`}
+            aria-label="AI Memory"
+            title="AI Memory"
           >
-            <GitCompareArrows className="h-5 w-5" />
+            <Brain className="h-5 w-5" />
           </Link>
         </div>
         <div className="mt-4 flex-1" />
@@ -94,20 +93,17 @@ export function Sidebar({ onClose }: SidebarProps) {
         >
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 shrink-0 text-accent" />
-            <span>Manage Labels</span>
+            <span>Manage Documents</span>
           </div>
-          <span className="rounded-pill bg-surface-highlight px-2 py-0.5 text-[10px] font-bold text-fg-muted">
-            PDFs
-          </span>
         </Link>
 
         <Link
-          to="/compare"
+          to="/memories"
           onClick={onClose}
-          className={`flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold transition-colors ${isCompareActive ? 'bg-surface-highlight text-primary' : 'text-fg hover:bg-surface-highlight'}`}
+          className={`flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold transition-colors ${location.pathname === '/memories' ? 'bg-surface-highlight text-primary' : 'text-fg hover:bg-surface-highlight'}`}
         >
-          <GitCompareArrows className="h-4 w-4 shrink-0 text-accent" />
-          <span>Compare Drugs</span>
+          <Brain className="h-4 w-4 shrink-0 text-accent" />
+          <span>Memory</span>
         </Link>
       </div>
 

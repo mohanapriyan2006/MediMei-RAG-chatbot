@@ -30,9 +30,11 @@ frontend/.env
 *.pt
 *.onnx
 data/models/
-models/
+/models/
 .paddleocr/
 .cache/
+
+references/
 
 # --- Local Uploads & Data Artifacts ---
 data/uploads/*

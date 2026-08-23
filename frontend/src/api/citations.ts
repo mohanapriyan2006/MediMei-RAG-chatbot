@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { Evidence } from '../types/evidence'
+import type { Citation } from '../types/chat'
 
-export const fetchCitations = (answerId: string) =>
-  apiFetch<Evidence[]>(`/api/v1/citations/${answerId}`)
+export const getCitation = (citationId: string) =>
+  apiFetch<Citation>(`/api/v1/citations/${encodeURIComponent(citationId)}`)

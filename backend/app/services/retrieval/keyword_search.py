@@ -87,7 +87,8 @@ async def keyword_search(
             "page_no": point.payload.get("page_no"),
             "section": point.payload.get("section"),
             "text": point.payload.get("text") or point.payload.get("chunk_text"),
-            "score": score
+            "score": score,
+            "quality_score": point.payload.get("quality_score", 1.0)
         })
 
     # Sort candidates by Python computed score descending

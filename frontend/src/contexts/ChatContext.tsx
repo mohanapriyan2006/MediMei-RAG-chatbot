@@ -3,6 +3,7 @@ import { createContext, useState, useEffect, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { ChatMessage, Citation } from '../types/chat'
 import { useConversations } from '../hooks/useConversations'
+import { useTask } from '../hooks/useTask'
 import { sendMessage as sendChatMessage } from '../api/chat'
 import { createSession, getSession, toConversationSummary } from '../api/sessions'
 
@@ -24,26 +25,26 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-function mapCitations(raw: any[] | undefined): Citation[] {
+function mapCitations(raw: unknown[] | undefined): Citation[] {
   if (!raw) return []
-  return raw.map((c, idx) => ({
-    citationId: c.chunk_id || c.citation_id || `c-${idx}`,
-    documentId: c.document_id || '',
-    documentName: c.document_name || 'Unknown Document',
-    page: c.page_no ?? 0,
-    section: c.section_title || c.section,
-    text: c.text,
-    score: c.score,
+  return (raw as Record<string, unknown>[]).map((c, idx) => ({
+    citationId: String(c.citation_id || c.chunk_id || `c-${idx}`),
+    documentId: String(c.document_id || ''),
+    documentName: String(c.document_name || 'Unknown Document'),
+    page: Number(c.page ?? c.page_no ?? 0),
+    section: c.section_title as string | undefined || c.section as string | undefined,
+    text: c.text as string | undefined,
+    score: c.score as number | undefined,
   }))
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [isLoading, setIsLoading] = useState(false)
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null)
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
 
   const { activeConversationId, setConversations, setActiveConversationId } = useConversations()
+  const { currentTask, startTask } = useTask()
 
   // Clear messages when no active conversation
   useEffect(() => {
@@ -54,84 +55,92 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, [activeConversationId])
 
+  const isLoading = currentTask.type === 'chat' && currentTask.status === 'running'
+
   // Load messages when a conversation is selected
   useEffect(() => {
     if (!activeConversationId) return
+    if (isLoading) return
     const load = async () => {
       try {
         const session = await getSession(activeConversationId)
-        const loaded: ChatMessage[] = session.messages.map((msg: any) => ({
+        const loaded: ChatMessage[] = session.messages.map((msg) => ({
           id: String(msg.message_id),
           role: msg.role as 'user' | 'assistant',
           content: msg.content,
+          thinking: msg.thinking || undefined,
           citations: mapCitations(msg.citations),
           status: msg.role === 'assistant' ? 'grounded' : undefined,
+          memoriesUpdated: msg.memories_updated || undefined,
+          memoriesUsed: msg.memories_used || undefined,
         }))
         setMessages(loaded)
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to load chat')
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to load chat')
       }
     }
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId])
 
-  const sendMessage = async (content: string, documentIds?: string[]) => {
-    if (!content.trim() || isLoading) return
+  const sendMessage = (content: string, documentIds?: string[]) => {
+    const lowercased = content.trim().toLowerCase()
+    if (!lowercased || isLoading) return
 
-    const userMessage: ChatMessage = {
-      id: makeId(),
-      role: 'user',
-      content: content.trim(),
-    }
-    setMessages((prev) => [...prev, userMessage])
-    setIsLoading(true)
+    void startTask(
+      'chat',
+      { message: lowercased, documentIds },
+      async (signal) => {
+        const userMessage: ChatMessage = {
+          id: makeId(),
+          role: 'user',
+          content: lowercased,
+        }
+        setMessages((prev) => [...prev, userMessage])
 
-    let sessionId = activeConversationId
+        let sessionId = activeConversationId
 
-    if (!sessionId) {
-      try {
-        const title = content.trim().slice(0, 30) + (content.trim().length > 30 ? '…' : '')
-        const session = await createSession(title)
-        sessionId = String(session.session_id)
-        setConversations((prev) => [toConversationSummary(session), ...prev])
-        setActiveConversationId(sessionId)
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to start chat session')
-        setIsLoading(false)
-        return
-      }
-    }
+        if (!sessionId) {
+          const title = lowercased.slice(0, 30) + (lowercased.length > 30 ? '…' : '')
+          const session = await createSession(title, signal)
+          sessionId = String(session.session_id)
+          setConversations((prev) => [toConversationSummary(session), ...prev])
+          setActiveConversationId(sessionId)
+          window.history.replaceState(null, '', `/chat/${sessionId}`)
+        }
 
-    try {
-      const response = await sendChatMessage({
-        message: content.trim(),
-        session_id: sessionId,
-        document_ids: documentIds,
-      })
+        const response = await sendChatMessage(
+          {
+            message: lowercased,
+            session_id: sessionId,
+            document_ids: documentIds,
+          },
+          signal,
+        )
 
-      const assistantMessage: ChatMessage = {
-        id: String(response.message_id),
-        role: 'assistant',
-        content: response.answer,
-        citations: mapCitations(response.citations),
-        status: response.grounded ? 'grounded' : 'insufficient_evidence',
-      }
+        const assistantMessage: ChatMessage = {
+          id: String(response.message_id),
+          role: 'assistant',
+          content: response.answer,
+          thinking: response.thinking || undefined,
+          citations: mapCitations(response.citations as unknown[]),
+          status: response.grounded ? 'grounded' : 'insufficient_evidence',
+          memoriesUpdated: response.memories_updated || undefined,
+          memoriesUsed: response.memories_used || undefined,
+        }
 
-      setMessages((prev) => [...prev, assistantMessage])
-      setSelectedMessageId(assistantMessage.id)
-      if (assistantMessage.citations && assistantMessage.citations.length > 0) {
-        setSelectedCitation(assistantMessage.citations[0])
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to send message')
-    } finally {
-      setIsLoading(false)
-    }
+        setMessages((prev) => [...prev, assistantMessage])
+        setSelectedMessageId(assistantMessage.id)
+        if (assistantMessage.citations && assistantMessage.citations.length > 0) {
+          setSelectedCitation(assistantMessage.citations[0])
+        }
+
+        return assistantMessage
+      },
+    )
   }
-
   const clearChat = () => {
     setMessages([])
-    setIsLoading(false)
     setSelectedCitation(null)
     setSelectedMessageId(null)
     setActiveConversationId(null)

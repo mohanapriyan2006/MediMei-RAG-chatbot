@@ -1,3 +1,4 @@
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 
 # Note: As per Backend_Implementation_Guide.md, versions are not frozen here 
 # to allow validation against the target Python/CUDA environment first.
@@ -6,6 +7,7 @@
 fastapi
 uvicorn[standard]
 python-multipart
+aiofiles
 pydantic
 pydantic-settings
 orjson
@@ -17,11 +19,15 @@ alembic
 # Optional helper for mysql sync operations / cryptography authentication support
 cryptography
 
-# --- PDF Processing & OCR Fallback ---
+# --- PDF Processing & OCR ---
+# CPU-only deployment. For GPU support, replace paddlepaddle with paddlepaddle-gpu
+# and install torch with CUDA wheels. See PaddleOCR/EasyOCR docs for details.
 pymupdf
-paddleocr
-# Note: For GPU support, replace with paddlepaddle-gpu if CUDA is available
-paddlepaddle
+paddlepaddle==3.3.1
+paddleocr==3.7.0
+easyocr
+pillow
+numpy
 
 # --- Machine Learning, Embeddings & LLM ---
 # Note: For CUDA-enabled environments, ensure PyTorch is installed with appropriate CUDA wheels
@@ -32,8 +38,7 @@ safetensors
 sentence-transformers
 gpt4all
 ctransformers
-openai
-google-generativeai
+llama-cpp-python
 
 # --- Vector Database ---
 qdrant-client

@@ -133,7 +133,7 @@ async def test_rag_service_answer_with_citations():
     ]
 
     mock_llm = MagicMock()
-    mock_llm.generate = MagicMock(return_value="The dosage is 10 mg once daily. [S1]")
+    mock_llm.generate_async = AsyncMock(return_value="The dosage is 10 mg once daily. [S1]")
 
     rag = RAGService(llm_service=mock_llm)
     result = await rag.answer_with_evidence("What is the dosage?", evidence)
@@ -162,7 +162,7 @@ async def test_rag_service_rejects_fabricated_citation():
 
     mock_llm = MagicMock()
     # S2 does not exist, so it should be stripped and the answer marked ungrounded.
-    mock_llm.generate = MagicMock(return_value="Take 10 mg. [S2]")
+    mock_llm.generate_async = AsyncMock(return_value="Take 10 mg. [S2]")
 
     rag = RAGService(llm_service=mock_llm)
     result = await rag.answer_with_evidence("What is the dosage?", evidence)
@@ -170,3 +170,5 @@ async def test_rag_service_rejects_fabricated_citation():
     assert result["answer"] == "Take 10 mg."
     assert result["grounded"] is False
     assert result["sources_used"] == 0
+
+

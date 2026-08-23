@@ -1,32 +1,45 @@
 import { useEffect, useState } from 'react'
+import { MarkdownResponse } from '../common/MarkdownResponse'
+import type { Citation } from '../../types/chat'
 
 interface StreamingTextProps {
   content: string
+  citations?: Citation[]
+  onCitationClick?: (citation: Citation) => void
   onComplete?: () => void
 }
 
-export function StreamingText({ content, onComplete }: StreamingTextProps) {
+export function StreamingText({ content, citations, onCitationClick, onComplete }: StreamingTextProps) {
   const [displayed, setDisplayed] = useState('')
 
   useEffect(() => {
     let index = 0
+    const step = Math.max(1, Math.floor(content.length / 100))
 
     const interval = setInterval(() => {
-      index += 1
-      setDisplayed(content.slice(0, index))
+      index += step
       if (index >= content.length) {
+        setDisplayed(content)
         clearInterval(interval)
         onComplete?.()
+      } else {
+        setDisplayed(content.slice(0, index))
       }
-    }, 5)
+    }, 15)
 
     return () => clearInterval(interval)
   }, [content, onComplete])
 
   return (
-    <span className="whitespace-pre-wrap">
-      {displayed}
-      <span className="ml-0.5 inline-block h-[1em] w-0.5 animate-pulse bg-primary" aria-hidden="true" />
-    </span>
+    <div className="relative">
+      <MarkdownResponse
+        content={displayed}
+        citations={citations}
+        onCitationClick={onCitationClick}
+      />
+      <span className="inline-block h-3.5 w-1.5 ml-1 animate-pulse bg-accent rounded-xs align-middle" aria-hidden="true" />
+    </div>
   )
 }
+
+export default StreamingText
