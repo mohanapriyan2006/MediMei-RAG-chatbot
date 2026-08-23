@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional
+from typing import Dict, Optional
 
 from app.core.config import settings
 from app.core.task_manager import task_manager, TaskCancelledError
@@ -50,7 +50,48 @@ class LLMService:
         return prompt, gen_kwargs
 
     @staticmethod
+    def _extract_text_and_thinking(raw_text: str) -> Dict[str, str]:
+        """Extract answer text and thinking text from raw LLM output.
+
+        Returns a dict with 'text' (the answer) and 'thinking' (the reasoning).
+        """
+        text = raw_text.strip()
+        thinking = ""
+
+        if "</think>" in text:
+            parts = text.split("</think>", 1)
+            think_block = parts[0]
+            answer = parts[1].strip() if len(parts) > 1 else ""
+
+            if "<think>" in think_block:
+                thinking = think_block.split("<think>", 1)[-1].strip()
+            else:
+                thinking = think_block.strip()
+        elif "<think>" in text:
+            parts = text.split("<think>", 1)
+            answer = parts[0].strip()
+            thinking = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            answer = text
+
+        # Truncate any repeated answer blocks (anti-repetition guard)
+        for marker in ["**Answer:**", "\nAnswer:", "=== Answer ===", "=== Question ==="]:
+            if marker in answer:
+                first_part = answer.split(marker)[0].strip()
+                if len(first_part) > 20:
+                    answer = first_part
+
+        # Clean up trailing abstention line if real content is present
+        if "I don't know based on the provided documents." in answer:
+            parts = answer.split("I don't know based on the provided documents.")
+            if len(parts) > 1 and len(parts[0].strip()) > 50:
+                answer = parts[0].strip()
+
+        return {"text": answer, "thinking": thinking}
+
+    @staticmethod
     def _extract_text(response) -> str:
+        """Legacy method: extract just the answer text from a response."""
         if isinstance(response, dict):
             text = response["choices"][0]["text"].strip()
         else:
@@ -74,6 +115,12 @@ class LLMService:
 
         return str(token)
 
+    def _get_raw_text(self, response) -> str:
+        """Get raw text from a response dict or string."""
+        if isinstance(response, dict):
+            return response["choices"][0]["text"].strip()
+        return str(response).strip()
+
     async def generate_async(
         self,
         prompt: str,
@@ -82,8 +129,10 @@ class LLMService:
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         stop: Optional[list] = None,
-    ) -> str:
-        """Send a prompt to the LLM and return the generated text.
+    ) -> Dict[str, str]:
+        """Send a prompt to the LLM and return the generated text and thinking.
+
+        Returns a dict with 'text' (answer) and 'thinking' (reasoning process).
 
         If task_id is provided, the generation is checked for cancellation
         between tokens (when the underlying model supports streaming).
@@ -114,7 +163,7 @@ class LLMService:
                 except Exception as exc:
                     logger.debug("Exception in streaming loop: %s", exc)
                 raw = "".join(text_parts)
-                return self._extract_text({"choices": [{"text": raw}]}) if raw else ""
+                return self._extract_text_and_thinking(raw)
         except (TypeError, ValueError, AttributeError) as exc:
             logger.debug("LLM streaming not supported by client: %s", exc)
 
@@ -122,7 +171,8 @@ class LLMService:
         await task_manager.raise_if_cancelled(task_id)
         response = await asyncio.to_thread(self.client, prompt, **gen_kwargs)
         await task_manager.raise_if_cancelled(task_id)
-        return self._extract_text(response)
+        raw = self._get_raw_text(response)
+        return self._extract_text_and_thinking(raw)
 
     def generate(
         self,

@@ -41,5 +41,6 @@ async def test_llm_service_streaming_success():
     service = LLMService(client=mock_client)
 
     result = await service.generate_async("Test prompt")
-    assert result == "Hello World"
+    assert result["text"] == "Hello World"
+    assert result["thinking"] == ""
     mock_client.assert_called_once()

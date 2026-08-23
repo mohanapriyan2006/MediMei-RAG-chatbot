@@ -48,6 +48,7 @@ async def create_chunks(
     db: AsyncSession,
     task_id: str = "",
     on_progress: Optional[Callable[[int, int, str], None]] = None,
+    page_ocr_confidence: Optional[dict] = None,
 ):
     """
     Chunk document page text, save chunks to MySQL, generate embeddings,
@@ -71,6 +72,11 @@ async def create_chunks(
     pages = result.scalars().all()
     page_quality_map = {
         page.page_no: (page.quality_score if page.quality_score is not None else 1.0)
+        for page in pages
+    }
+    page_ocr_conf_map = page_ocr_confidence or {}
+    page_extraction_method_map = {
+        page.page_no: page.extraction_method
         for page in pages
     }
 
@@ -171,7 +177,9 @@ async def create_chunks(
             "chunk_index": chunk.chunk_index,
             "chunk_text": chunk.chunk_text,
             "embedding": emb,
-            "quality_score": page_quality_map.get(chunk.page_no, 1.0)
+            "quality_score": page_quality_map.get(chunk.page_no, 1.0),
+            "ocr_confidence": page_ocr_conf_map.get(chunk.page_no),
+            "extraction_method": page_extraction_method_map.get(chunk.page_no),
         })
 
     try:

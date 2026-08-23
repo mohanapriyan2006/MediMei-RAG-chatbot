@@ -16,6 +16,8 @@ class RetrievalResult(BaseModel):
     version: Optional[str] = None
     text_hash: Optional[str] = None
     text: Optional[str] = None
+    quality_score: float = 1.0
+    ocr_confidence: Optional[float] = None
 
 
 class SearchRequest(BaseModel):

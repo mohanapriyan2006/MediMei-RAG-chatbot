@@ -1,4 +1,5 @@
 from sqlalchemy import Column, BigInteger, String, Text, DateTime, ForeignKey, func
+from sqlalchemy.dialects.mysql import MEDIUMTEXT as MediumText
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 
@@ -22,8 +23,8 @@ class ChatMessage(Base):
     session_id = Column(BigInteger, ForeignKey("sessions.session_id"), nullable=False)
     role = Column(String(50), nullable=False)
     content = Column(Text, nullable=False)
-    memories_updated = Column(Text, nullable=True)  # JSON-serialized list of strings
-    memories_used = Column(Text, nullable=True)  # JSON-serialized list of strings
+    memories_updated = Column(MediumText, nullable=True)  # JSON-serialized list of strings
+    memories_used = Column(MediumText, nullable=True)  # JSON-serialized list of strings
     created_at = Column(DateTime, server_default=func.current_timestamp())
 
     # Inverse relationship to session

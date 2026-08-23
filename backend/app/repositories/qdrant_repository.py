@@ -20,6 +20,10 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+QDRANT_TIMEOUT = 30
+QDRANT_MAX_RETRIES = 2
+QDRANT_RETRY_DELAY = 1.0
+
 
 class QdrantRepository:
     """
@@ -41,9 +45,14 @@ class QdrantRepository:
             self._client = AsyncQdrantClient(
                 url=settings.QDRANT_URL,
                 api_key=api_key,
-                timeout=60.0,
+                timeout=QDRANT_TIMEOUT,
             )
         return self._client
+
+    def _reset_client(self):
+        """Reset the cached client so the next access creates a fresh connection."""
+        self._client = None
+        self._collection_verified = False
 
     def set_vector_size(self, vector_size: int):
         """Set the collection vector size from the actual embedding model."""
@@ -113,7 +122,10 @@ class QdrantRepository:
         section: Optional[str],
         chunk_index: int,
         chunk_text: str,
-        embedding: List[float]
+        embedding: List[float],
+        quality_score: float = 1.0,
+        ocr_confidence: Optional[float] = None,
+        extraction_method: Optional[str] = None,
     ):
         """Index a single document chunk with both text and metadata payload."""
         await self.ensure_collection_exists()
@@ -129,7 +141,10 @@ class QdrantRepository:
                 "section": section,
                 "chunk_index": chunk_index,
                 "chunk_text": chunk_text,
-                "text": chunk_text  # Added for backwards/alternate schema compatibility
+                "text": chunk_text,  # Added for backwards/alternate schema compatibility
+                "quality_score": quality_score,
+                "ocr_confidence": ocr_confidence,
+                "extraction_method": extraction_method,
             }
         )
 
@@ -167,6 +182,8 @@ class QdrantRepository:
                     "extraction_method": chunk.get("extraction_method"),
                     "version": chunk.get("version"),
                     "text_hash": chunk.get("text_hash"),
+                    "quality_score": chunk.get("quality_score", 1.0),
+                    "ocr_confidence": chunk.get("ocr_confidence"),
                 }
             )
             points.append(point)
@@ -204,8 +221,8 @@ class QdrantRepository:
 
         query_filter = Filter(must=must_conditions) if must_conditions else None
 
-        max_retries = 3
-        for attempt in range(max_retries):
+        last_exc = None
+        for attempt in range(QDRANT_MAX_RETRIES + 1):
             try:
                 results = await self.client.query_points(
                     collection_name=self.collection_name,
@@ -215,17 +232,20 @@ class QdrantRepository:
                     score_threshold=score_threshold,
                 )
                 return results.points
-            except (ResponseHandlingException, Exception) as e:
-                is_transient = isinstance(e, ResponseHandlingException) or "ReadError" in str(e)
-                if is_transient and attempt < max_retries - 1:
-                    delay = 0.5 * (2 ** attempt)
-                    logger.warning(
-                        "Qdrant search attempt %d/%d failed (retrying in %.1fs): %s",
-                        attempt + 1, max_retries, delay, e,
-                    )
-                    await asyncio.sleep(delay)
-                else:
-                    raise
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "Qdrant search attempt %d/%d failed: %s",
+                    attempt + 1,
+                    QDRANT_MAX_RETRIES + 1,
+                    exc,
+                )
+                if attempt < QDRANT_MAX_RETRIES:
+                    self._reset_client()
+                    await self.ensure_collection_exists()
+                    await asyncio.sleep(QDRANT_RETRY_DELAY)
+
+        raise last_exc
 
     async def delete_document_chunks(self, document_id: str):
         """Delete all vectors and payload associated with a specific document ID from Qdrant."""

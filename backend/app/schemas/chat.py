@@ -14,6 +14,7 @@ class ChatResponse(BaseModel):
     message_id: str
     session_id: str
     answer: str
+    thinking: str | None = None
     grounded: bool
     evidence_count: int
     citations: List[Citation]
@@ -26,6 +27,7 @@ class MessageResponse(BaseModel):
     session_id: str
     role: str
     content: str
+    thinking: str | None = None
     timestamp: datetime | None = None
     citations: List[Citation] = []
     memories_updated: List[str] | None = None

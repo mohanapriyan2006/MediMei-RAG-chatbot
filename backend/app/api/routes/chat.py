@@ -96,7 +96,7 @@ async def mock_evidence_retrieval(
             scored_chunks.append((max(score, 0.78 if is_summary else 0.5), c))
 
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
-    top_chunks = scored_chunks[:6] if scored_chunks else [(0.8, c) for c in all_chunks[:4]]
+    top_chunks = scored_chunks[:6]
 
     for sc, c in top_chunks:
         retrieved.append({
@@ -366,103 +366,30 @@ async def _post_chat_message_impl(
     # 1.6. Greeting / identity handler (memory-driven small talk)
     # ---------------------------------------------------------
 
-    if current_user.memory_enabled and memories_used:
-        lower_msg = request.message or ""
-        greeting_triggers = {
-            "hi", "hey", "hello", "howdy", "greetings",
-            "good morning", "good afternoon", "good evening",
-            "what's up", "who are you", "what are you", "tell me about yourself",
-        }
-        is_greeting = lower_msg in greeting_triggers or lower_msg.startswith(("hi ", "hey ", "hello ", "howdy "))
-
-        greeting_memories = [
-            m for m in memories_used
-            if "greet" in m.lower() and "medimei" in m.lower()
-        ]
-
-        if is_greeting and greeting_memories:
-            greeting_answer = (
-                "Hello! I'm MediMei, your clinical assistant. "
-                "How can I help you today?"
-            )
-
-            user_msg = ChatMessage(
-                session_id=session_id,
-                role="user",
-                content=request.message
-            )
-            assistant_msg = ChatMessage(
-                session_id=session_id,
-                role="assistant",
-                content=greeting_answer,
-                memories_used=json.dumps(greeting_memories[:1])
-            )
-
-            db.add(user_msg)
-            db.add(assistant_msg)
-            await db.commit()
-            await db.refresh(assistant_msg)
-
-            return ChatResponse(
-                message_id=str(assistant_msg.message_id),
-                session_id=str(session_id),
-                answer=greeting_answer,
-                grounded=False,
-                evidence_count=0,
-                citations=[],
-                memories_updated=None,
-                memories_used=greeting_memories[:1]
-            )
-
-    # ---------------------------------------------------------
-    # 2. Retrieve evidence from Qdrant
-    # ---------------------------------------------------------
-
-    logger.info("[CHAT] Step 2: Retrieving evidence from Qdrant...")
     evidence_chunks = []
 
     try:
-
-        raw_vec = embedding_model.encode(request.message, normalize_embeddings=True)
-        query_vector = raw_vec.tolist() if hasattr(raw_vec, "tolist") else list(raw_vec)
-
-        search_result = await qdrant_repository.search(
-            query_vector=query_vector,
-            limit=settings.TOP_K,
+        # Use SemanticSearchService for retrieval — it applies CrossEncoder
+        # reranking by default, retrieving top_k*3 candidates from Qdrant
+        # then reranking to top_k.  This significantly improves relevance
+        # for non-drug documents (e.g. novels, general text) where raw
+        # cosine similarity alone often surfaces wrong chunks.
+        search_results = await rag_service.search_service.search(
+            query=request.message,
             document_ids=request.document_ids,
             score_threshold=settings.MIN_RELEVANCE_SCORE,
         )
-
-        for point in search_result:
-
-            if point.score >= settings.MIN_RELEVANCE_SCORE:
-
-                evidence_chunks.append({
-                    "chunk_id": point.payload.get(
-                        "chunk_id",
-                        str(point.id)
-                    ),
-                    "document_id": point.payload.get(
-                        "document_id"
-                    ),
-                    "document_name": point.payload.get(
-                        "document_name"
-                    ),
-                    "page_no": point.payload.get(
-                        "page_no"
-                    ),
-                    "section": point.payload.get(
-                        "section"
-                    ),
-                    "text": point.payload.get(
-                        "text"
-                    ),
-                    "score": point.score
-                })
+        # Normalize field names: SemanticSearchService returns "section_title"
+        # but the prompt builder and citation code below expect "section".
+        for r in search_results:
+            if "section" not in r:
+                r["section"] = r.get("section_title") or "Unknown"
+        evidence_chunks = search_results
 
     except Exception as e:
         logger.warning(
-            "[CHAT] Step 2: Qdrant query failed: %s. Using database retrieval fallback.", e
+            f"Semantic search failed: {e}. "
+            "Using database retrieval fallback."
         )
         evidence_chunks = await mock_evidence_retrieval(
             request.message,
@@ -501,7 +428,7 @@ async def _post_chat_message_impl(
             session_id=session_id,
             role="assistant",
             content=abstaining_answer,
-            memories_used=json.dumps(memories_used) if memories_used else None
+            memories_used=None
         )
 
         db.add(user_msg)
@@ -516,7 +443,7 @@ async def _post_chat_message_impl(
             grounded=False,
             evidence_count=0,
             citations=[],
-            memories_used=memories_used if memories_used else None,
+            memories_used=None,
             memories_updated=None
         )
 
@@ -548,11 +475,15 @@ async def _post_chat_message_impl(
     # 5. Call LLM
     # ---------------------------------------------------------
 
-    logger.info("[CHAT] Step 5: Calling RAG service with %d evidence chunks", len(evidence_chunks))
+    # Limit memories passed to LLM to avoid prompt overflow
+    llm_memories = None
+    if current_user.memory_enabled and memory_records:
+        llm_memories = memory_records[:5]
+
     rag_result = await rag_service.answer_with_evidence(
         request.message,
         evidence_chunks,
-        memories=memory_records if current_user.memory_enabled else None,
+        memories=llm_memories,
         task_id=x_task_id,
     )
     answer_text = rag_result["answer"]
@@ -631,7 +562,7 @@ async def _post_chat_message_impl(
         role="assistant",
         content=answer_text,
         memories_updated=json.dumps(memories_updated) if memories_updated else None,
-        memories_used=json.dumps(memories_used) if memories_used else None
+        memories_used=json.dumps(rag_result.get("memories_used")) if rag_result.get("memories_used") else None
     )
 
     db.add(user_msg)
@@ -692,11 +623,12 @@ async def _post_chat_message_impl(
         message_id=str(assistant_msg.message_id),
         session_id=str(session_id),
         answer=answer_text,
+        thinking=rag_result.get("thinking"),
         grounded=grounded,
         evidence_count=evidence_count,
         citations=citations,
         memories_updated=memories_updated if memories_updated else None,
-        memories_used=rag_result.get("memories_used") if rag_result.get("memories_used") else (memories_used if memories_used else None)
+        memories_used=rag_result.get("memories_used") or None
     )
 
 

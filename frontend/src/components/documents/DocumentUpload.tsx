@@ -20,10 +20,10 @@ export function DocumentUpload() {
       return
     }
     const file = files[0]
-    const allowed = ['.pdf', '.docx', '.doc']
-    const isAllowed = allowed.some((ext) => file.name.toLowerCase().endsWith(ext))
+    const allowed = ['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff', '.tif']
+    const isAllowed = allowed.some((ext) => file.name.toLowerCase().endsWith(ext)) || file.type.startsWith('image/')
     if (!isAllowed) {
-      toast.error('Only PDF, DOCX, and DOC files are supported')
+      toast.error('Only PDF, DOCX, DOC, and image files (PNG, JPG, WEBP, BMP, TIFF) are supported')
       return
     }
     uploadDocument(file)
@@ -69,10 +69,10 @@ export function DocumentUpload() {
 
       {/* Copy */}
       <p className="mb-1 text-sm font-semibold text-fg">
-        {dragging ? 'Drop to upload' : 'Drop PDF, DOCX, or DOC here'}
+        {dragging ? 'Drop to upload' : 'Drop PDF, DOCX, DOC, or Image files here'}
       </p>
       <p className="mb-5 text-xs text-fg-muted">
-        Approved drug-label documents only · PDF, DOCX, DOC format
+        Approved drug-label & medical documents · PDF, DOCX, DOC, PNG, JPG, WEBP format
       </p>
 
       {/* Button */}
@@ -89,10 +89,10 @@ export function DocumentUpload() {
         ref={inputRef}
         type="file"
         disabled={isTaskRunning}
-        accept=".pdf,.docx,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+        accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif,image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
         className="sr-only"
         onChange={(e) => handleFiles(e.target.files)}
-        aria-label="Select PDF, DOCX, or DOC file"
+        aria-label="Select PDF, DOCX, DOC, or Image file"
       />
     </div>
   )

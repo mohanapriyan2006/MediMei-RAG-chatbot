@@ -87,7 +87,13 @@ class RAGService:
         await task_manager.raise_if_cancelled(task_id)
         gen_start = time.perf_counter()
         try:
-            answer = await self.llm_service.generate_async(prompt, task_id=task_id)
+            llm_res = await self.llm_service.generate_async(prompt, task_id=task_id)
+            if isinstance(llm_res, dict):
+                answer = llm_res.get("text", "")
+                thinking = llm_res.get("thinking", "")
+            else:
+                answer = str(llm_res)
+                thinking = ""
             await task_manager.raise_if_cancelled(task_id)
         except TaskCancelledError:
             raise
@@ -96,6 +102,7 @@ class RAGService:
             return {
                 "query": question,
                 "answer": "I don't know based on the provided documents.",
+                "thinking": "",
                 "citations": [],
                 "grounded": False,
                 "sources_used": 0,
@@ -132,6 +139,7 @@ class RAGService:
         return {
             "query": question,
             "answer": answer,
+            "thinking": thinking,
             "citations": citations,
             "grounded": grounded,
             "sources_used": len(citations),
@@ -167,7 +175,13 @@ class RAGService:
         await task_manager.raise_if_cancelled(task_id)
         gen_start = time.perf_counter()
         try:
-            answer = await self.llm_service.generate_async(prompt, task_id=task_id)
+            llm_res = await self.llm_service.generate_async(prompt, task_id=task_id)
+            if isinstance(llm_res, dict):
+                answer = llm_res.get("text", "")
+                thinking = llm_res.get("thinking", "")
+            else:
+                answer = str(llm_res)
+                thinking = ""
             await task_manager.raise_if_cancelled(task_id)
         except TaskCancelledError:
             raise
@@ -176,6 +190,7 @@ class RAGService:
             return {
                 "query": question,
                 "answer": "I don't know based on the provided documents.",
+                "thinking": "",
                 "citations": [],
                 "grounded": False,
                 "sources_used": 0,
@@ -207,6 +222,7 @@ class RAGService:
         return {
             "query": question,
             "answer": answer,
+            "thinking": thinking,
             "citations": citations,
             "grounded": grounded,
             "sources_used": len(citations),

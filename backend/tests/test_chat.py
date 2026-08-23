@@ -160,6 +160,87 @@ def test_post_chat_message_success(mock_hybrid_search, client, mock_db, mock_llm
     assert len(data["citations"]) == 1
     assert data["citations"][0]["chunk_id"] == "chunk-123"
 
+
+@patch("app.services.retrieval.semantic_search_service.SemanticSearchService.search")
+def test_post_chat_message_non_drug_document_retrieval(mock_search, client, mock_db, mock_llm):
+    """Verify that a non-drug document (e.g. a novel) is correctly retrieved
+    and its content reaches the LLM — not Rinvoq or other drug chunks."""
+    mock_search.return_value = [
+        {
+            "chunk_id": "chunk-novel-42",
+            "document_id": "doc-jekyll",
+            "document_name": "Jekyll_and_Hyde.pdf",
+            "page_no": 48,
+            "section_title": "Chapter 6",
+            "section": "Chapter 6",
+            "text": "Dr. Lanyon replied that he had seen something so impossible, so dreadful, "
+                    "that he could not speak of it. He begged Utterson not to mention the matter again.",
+            "score": 0.88,
+        }
+    ]
+    # Override LLM to echo back evidence so we can verify it received the novel chunk
+    mock_llm.return_value = {
+        "choices": [
+            {"text": "Dr. Lanyon replied that he saw something impossible and dreadful, "
+                     "and begged Utterson not to mention it again. [S1]"}
+        ]
+    }
+
+    payload = {
+        "session_id": "1",
+        "message": "what does dr. lanyon reply?",
+        "document_ids": ["doc-jekyll"]
+    }
+
+    session = ChatSession(session_id=1, user_id=10, started_at=datetime.utcnow(), summary="")
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = session
+    mock_db.execute.return_value = mock_result
+
+    response = client.post("/api/v1/chat", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["grounded"] is True
+    assert "Lanyon" in data["answer"]
+    assert len(data["citations"]) >= 1
+    assert data["citations"][0]["document_name"] == "Jekyll_and_Hyde.pdf"
+    assert data["citations"][0]["page"] == 48
+
+    # Verify the search was called with the correct query and document_ids
+    mock_search.assert_called_once()
+    _, kwargs = mock_search.call_args
+    assert kwargs["document_ids"] == ["doc-jekyll"]
+
+
+@patch("app.services.retrieval.semantic_search_service.SemanticSearchService.search")
+def test_post_chat_message_no_evidence_for_unrelated_query(mock_search, client, mock_db):
+    """When SemanticSearchService returns no results and DB fallback also returns nothing,
+    the chat endpoint should abstain — not return random chunks."""
+    mock_search.return_value = []
+
+    payload = {
+        "session_id": "1",
+        "message": "what is the meaning of life?",
+        "document_ids": ["doc-jekyll"]
+    }
+
+    session = ChatSession(session_id=1, user_id=10, started_at=datetime.utcnow(), summary="")
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = session
+    mock_result.scalars.return_value.all.return_value = []
+    mock_db.execute.return_value = mock_result
+
+    response = client.post("/api/v1/chat", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["grounded"] is False
+    assert "I couldn't find sufficient information" in data["answer"]
+    assert len(data["citations"]) == 0
+
 @patch("app.services.chat.conversation.hybrid_search")
 def test_post_chat_message_abstain(mock_hybrid_search, client, mock_db, mock_qdrant):
     # Mock empty search results

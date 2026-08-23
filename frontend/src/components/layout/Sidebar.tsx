@@ -1,4 +1,4 @@
-import { FileText, Plus, GitCompareArrows, Brain } from 'lucide-react'
+import { FileText, Plus, Brain } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useChat } from '../../hooks/useChat'
 import { useConversations } from '../../hooks/useConversations'
@@ -22,7 +22,6 @@ export function Sidebar({ onClose }: SidebarProps) {
   useDocuments()
   const location = useLocation()
   const collapsed = sidebarCollapsed
-  const isCompareActive = location.pathname === '/compare'
 
   const handleNewChat = () => {
     clearChat();
@@ -54,16 +53,6 @@ export function Sidebar({ onClose }: SidebarProps) {
             title="Manage Documents"
           >
             <FileText className="h-5 w-5" />
-          </Link>
-
-          <Link
-            to="/compare"
-            onClick={onClose}
-            className={`flex h-9 w-9 items-center justify-center rounded-2xl transition-colors hover:bg-surface-highlight ${isCompareActive ? 'bg-surface-highlight text-primary' : 'text-fg-muted hover:text-primary'}`}
-            aria-label="Compare drugs"
-            title="Compare Drugs"
-          >
-            <GitCompareArrows className="h-5 w-5" />
           </Link>
 
           <Link
@@ -106,15 +95,6 @@ export function Sidebar({ onClose }: SidebarProps) {
             <FileText className="h-4 w-4 shrink-0 text-accent" />
             <span>Manage Documents</span>
           </div>
-        </Link>
-
-        <Link
-          to="/compare"
-          onClick={onClose}
-          className={`flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-xs font-semibold transition-colors ${isCompareActive ? 'bg-surface-highlight text-primary' : 'text-fg hover:bg-surface-highlight'}`}
-        >
-          <GitCompareArrows className="h-4 w-4 shrink-0 text-accent" />
-          <span>Compare Drugs</span>
         </Link>
 
         <Link

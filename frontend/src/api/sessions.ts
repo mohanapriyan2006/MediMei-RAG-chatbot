@@ -5,6 +5,7 @@ export interface SessionMessage {
   message_id: string
   role: string
   content: string
+  thinking?: string
   citations?: unknown[]
   memories_updated?: string[]
   memories_used?: string[]

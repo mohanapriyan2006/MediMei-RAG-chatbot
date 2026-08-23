@@ -32,7 +32,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
 
   const mapBackendDoc = (doc: Record<string, unknown>): Document => ({
     id: String(doc.document_id),
-    name: String(doc.source || (doc.file_name as string).replace(/\.pdf$/i, '').replace(/[-_]/g, ' ').trim()),
+    name: String(doc.source || (doc.file_name as string).replace(/\.(pdf|docx|doc|png|jpg|jpeg|webp|bmp|tiff|tif)$/i, '').replace(/[-_]/g, ' ').trim()),
     filename: String(doc.file_name),
     status: doc.status === 'completed' ? 'ready' : doc.status === 'failed' ? 'failed' : 'processing',
     fileSize: Number(doc.file_size || 0),
@@ -90,7 +90,7 @@ export function DocumentProvider({ children }: { children: ReactNode }) {
 
   const uploadDocument = async (file: File) => {
     const tempId = `temp-${Date.now()}`
-    const name = file.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ').trim()
+    const name = file.name.replace(/\.(pdf|docx|doc|png|jpg|jpeg|webp|bmp|tiff|tif)$/i, '').replace(/[-_]/g, ' ').trim()
     const tempDoc: Document = {
       id: tempId,
       name: name || file.name,

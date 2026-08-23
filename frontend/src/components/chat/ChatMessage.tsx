@@ -153,6 +153,44 @@ function ActionButton({
   )
 }
 
+/* ── Collapsible Thinking / Reasoning Process ─────────────────────── */
+function ThinkingSection({ thinking }: { thinking?: string }) {
+  const [expanded, setExpanded] = useState(false)
+  if (!thinking || !thinking.trim()) return null
+
+  return (
+    <div className="mb-3.5 rounded-2xl border border-border/70 bg-surface-subtle/50 p-2.5 transition-all duration-200 hover:border-border">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-2 text-left cursor-pointer select-none"
+      >
+        <div className="flex items-center gap-2">
+          <div className="flex h-5.5 w-5.5 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Brain className="h-3.5 w-3.5" />
+          </div>
+          <span className="text-xs font-semibold text-fg">
+            Thought Process
+          </span>
+          <span className="rounded-full bg-surface-highlight px-2 py-0.5 text-[10px] font-mono text-fg-muted">
+            Internal Reasoning
+          </span>
+        </div>
+        <div className="flex items-center gap-1 text-[11px] font-medium text-fg-muted hover:text-fg">
+          <span>{expanded ? 'Hide thinking' : 'Show thinking'}</span>
+          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-2.5 max-h-64 overflow-y-auto rounded-xl border border-border/50 bg-surface-subtle p-3 text-xs font-mono leading-relaxed text-fg-muted whitespace-pre-wrap shadow-inner">
+          {thinking.trim()}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AssistantMessage({
   message,
   isLast,
@@ -262,6 +300,9 @@ function AssistantMessage({
               </span>
             )}
           </div>
+
+          {/* Thinking / Reasoning Dropdown */}
+          <ThinkingSection thinking={message.thinking} />
 
           {/* Answer Text */}
           {!isStreaming ? (

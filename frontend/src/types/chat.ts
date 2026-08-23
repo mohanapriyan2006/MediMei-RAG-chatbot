@@ -14,6 +14,7 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  thinking?: string
   citations?: Citation[]
   followUps?: string[]
   status?: AnswerStatus
@@ -26,6 +27,7 @@ export interface ChatResponse {
   message_id: string
   session_id: string
   answer: string
+  thinking?: string
   grounded: boolean
   evidence_count?: number
   citations: Citation[]

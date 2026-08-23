@@ -13,12 +13,13 @@ interface SourceViewerModalProps {
   onClose: () => void
 }
 
-function getFileType(filename?: string): 'pdf' | 'docx' | 'doc' | 'unknown' {
+function getFileType(filename?: string): 'pdf' | 'docx' | 'doc' | 'image' | 'unknown' {
   if (!filename) return 'unknown'
   const ext = filename.split('.').pop()?.toLowerCase()
   if (ext === 'pdf') return 'pdf'
   if (ext === 'docx') return 'docx'
   if (ext === 'doc') return 'doc'
+  if (['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'].includes(ext || '')) return 'image'
   return 'unknown'
 }
 
@@ -26,6 +27,7 @@ export function SourceViewerModal({ citation, document, open, onClose }: SourceV
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [html, setHtml] = useState<string | null>(null)
   const [docChunks, setDocChunks] = useState<DocumentChunkRecord[]>([])
   const [selectedPage, setSelectedPage] = useState<number>(1)
@@ -47,6 +49,7 @@ export function SourceViewerModal({ citation, document, open, onClose }: SourceV
     setLoading(true)
     setError(null)
     setPdfUrl(null)
+    setImageUrl(null)
     setHtml(null)
     setDocChunks([])
     setSelectedPage(citation.page || 1)
@@ -70,6 +73,15 @@ export function SourceViewerModal({ citation, document, open, onClose }: SourceV
           if (cancelled) return
           objectUrl = URL.createObjectURL(blob)
           setPdfUrl(objectUrl)
+        } else if (fileType === 'image') {
+          const blob = await fetchDocumentFile(docId)
+          if (cancelled) return
+          objectUrl = URL.createObjectURL(blob)
+          setImageUrl(objectUrl)
+          const chunks = await fetchDocumentChunks(docId)
+          if (chunks && chunks.length > 0 && !cancelled) {
+            setDocChunks(chunks)
+          }
         } else {
           // Attempt Word HTML conversion via mammoth first
           let mammothSucceeded = false
@@ -227,6 +239,17 @@ export function SourceViewerModal({ citation, document, open, onClose }: SourceV
               src={`${pdfUrl}#page=${citation.page}`}
               className="h-full w-full rounded-2xl border border-border bg-white shadow-xs"
             />
+          )}
+
+          {/* Image Viewer */}
+          {!loading && !error && fileType === 'image' && imageUrl && (
+            <div className="flex h-full w-full flex-col items-center justify-center overflow-auto rounded-2xl border border-border bg-black/5 p-4 shadow-xs">
+              <img
+                src={imageUrl}
+                alt={docName}
+                className="max-h-full max-w-full rounded-xl object-contain shadow-md"
+              />
+            </div>
           )}
 
           {/* Word HTML Viewer */}

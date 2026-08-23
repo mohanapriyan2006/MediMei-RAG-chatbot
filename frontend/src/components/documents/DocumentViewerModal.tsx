@@ -11,12 +11,13 @@ interface DocumentViewerModalProps {
   onClose: () => void
 }
 
-function getFileType(filename?: string): 'pdf' | 'docx' | 'doc' | 'unknown' {
+function getFileType(filename?: string): 'pdf' | 'docx' | 'doc' | 'image' | 'unknown' {
   if (!filename) return 'unknown'
   const ext = filename.split('.').pop()?.toLowerCase()
   if (ext === 'pdf') return 'pdf'
   if (ext === 'docx') return 'docx'
   if (ext === 'doc') return 'doc'
+  if (['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif'].includes(ext || '')) return 'image'
   return 'unknown'
 }
 
@@ -25,6 +26,7 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
   const [error, setError] = useState<string | null>(null)
   const [html, setHtml] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [docChunks, setDocChunks] = useState<DocumentChunkRecord[]>([])
   const [selectedPage, setSelectedPage] = useState<number>(1)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -45,6 +47,7 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
     setError(null)
     setHtml(null)
     setPdfUrl(null)
+    setImageUrl(null)
     setDocChunks([])
     setSelectedPage(1)
 
@@ -55,6 +58,16 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
           if (cancelled) return
           objectUrl = URL.createObjectURL(blob)
           setPdfUrl(objectUrl)
+        } else if (fileType === 'image') {
+          const blob = await fetchDocumentFile(document.id)
+          if (cancelled) return
+          objectUrl = URL.createObjectURL(blob)
+          setImageUrl(objectUrl)
+          // Also fetch extracted OCR text chunks for evidence reading below
+          const chunks = await fetchDocumentChunks(document.id)
+          if (chunks && chunks.length > 0 && !cancelled) {
+            setDocChunks(chunks)
+          }
         } else {
           // Attempt mammoth conversion first
           let mammothSucceeded = false
@@ -206,6 +219,17 @@ export function DocumentViewerModal({ document, open, onClose }: DocumentViewerM
               src={pdfUrl}
               className="h-full w-full rounded-2xl border border-border bg-white shadow-xs"
             />
+          )}
+
+          {/* Image Viewer */}
+          {!loading && !error && fileType === 'image' && imageUrl && (
+            <div className="flex h-full w-full flex-col items-center justify-center overflow-auto rounded-2xl border border-border bg-black/5 p-4 shadow-xs">
+              <img
+                src={imageUrl}
+                alt={docName}
+                className="max-h-full max-w-full rounded-xl object-contain shadow-md"
+              />
+            </div>
           )}
 
           {/* Word HTML Viewer */}

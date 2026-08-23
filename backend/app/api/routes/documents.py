@@ -33,6 +33,8 @@ from app.schemas.document import (
 )
 
 from app.services.pdf.extractor import extract_pdf_pages
+from app.services.pdf.pipeline import extract_image_page
+from app.services.pdf.ocr import IMAGE_EXTENSIONS
 from app.services.chunking.chunker import create_chunks
 
 from app.core.config import settings
@@ -132,7 +134,7 @@ async def simulate_processing_task(
             await task_manager.raise_if_cancelled(task_id)
 
             # -----------------------------------------
-            # 3. Find uploaded PDF
+            # 3. Find uploaded file
             # -----------------------------------------
 
             file_path = os.path.join(
@@ -141,18 +143,24 @@ async def simulate_processing_task(
             )
 
             logger.info(
-                f"Reading PDF from: {file_path}"
+                f"Reading file from: {file_path}"
             )
 
             if not os.path.exists(file_path):
 
                 raise FileNotFoundError(
-                    f"PDF file not found: {file_path}"
+                    f"File not found: {file_path}"
                 )
 
             # -----------------------------------------
-            # 4. Extract PDF pages (with progress)
+            # 4. Extract pages (with progress)
+            #    Dispatch based on file type:
+            #    .pdf → PDF processor (PyMuPDF + OCR fallback)
+            #    image extensions → image OCR processor
             # -----------------------------------------
+
+            file_ext = os.path.splitext(file_path)[1].lower()
+            is_image = file_ext in IMAGE_EXTENSIONS
 
             async def on_extraction_progress(current, total, stage):
                 pct = int((current / total) * 50) if total > 0 else 0
@@ -165,14 +173,24 @@ async def simulate_processing_task(
                     await db.rollback()
 
             try:
-                pages = await extract_pdf_pages(
-                    file_path,
-                    document_id=document_id,
-                    task_id=task_id,
-                    on_progress=on_extraction_progress,
-                )
+                if is_image:
+                    logger.info("Processing image file %s via OCR", file_path)
+                    pages = await extract_image_page(
+                        file_path,
+                        document_id=document_id,
+                    )
+                    # Update progress for single-page image
+                    if on_extraction_progress:
+                        await on_extraction_progress(1, 1, "extracting")
+                else:
+                    pages = await extract_pdf_pages(
+                        file_path,
+                        document_id=document_id,
+                        task_id=task_id,
+                        on_progress=on_extraction_progress,
+                    )
             except Exception as exc:
-                logger.error("PDF extraction failed: %s", exc)
+                logger.error("Document extraction failed: %s", exc)
                 raise
 
             await task_manager.raise_if_cancelled(task_id)
@@ -271,6 +289,11 @@ async def simulate_processing_task(
                 db,
                 task_id=task_id,
                 on_progress=on_embedding_progress,
+                page_ocr_confidence={
+                    p["page_no"]: p.get("ocr_confidence")
+                    for p in pages
+                    if p.get("ocr_confidence") is not None
+                },
             )
 
             logger.info(
@@ -378,12 +401,12 @@ async def upload_document(
     # 1. Validate file format
     # -----------------------------------------
 
-    allowed_extensions = (".pdf", ".docx", ".doc")
+    allowed_extensions = (".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif")
     if not file.filename.lower().endswith(allowed_extensions):
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file format. Only PDF, DOCX, and DOC files are supported."
+            detail="Invalid file format. Only PDF, DOCX, DOC, and image files (PNG, JPG, JPEG, WEBP, BMP, TIFF) are supported."
         )
 
 

@@ -251,7 +251,22 @@ export default function ComparePage() {
               ) : result ? (
                 <div className="space-y-5 animate-fade-in">
                   <ComparisonSummary result={result} />
-                  <ComparisonTable result={result} onCitationClick={handleCitationClick} />
+                  {result.attributes.length > 0 ? (
+                    <ComparisonTable result={result} onCitationClick={handleCitationClick} />
+                  ) : (
+                    <div className="rounded-xl border border-border bg-surface p-8 text-center shadow-card">
+                      <h3 className="text-base font-bold text-fg">No comparable sections found</h3>
+                      <p className="mt-2 text-sm text-fg-muted leading-relaxed">
+                        Both documents were processed, but no overlapping clinical sections
+                        (indications, dosage, warnings, etc.) were found in the indexed content.
+                        This may happen if the documents are still being indexed, have poor text
+                        extraction quality, or contain non-standard section layouts.
+                      </p>
+                      <p className="mt-3 text-xs text-fg-muted">
+                        Try re-processing the documents or check extraction logs for OCR issues.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Bottom Save Action Bar */}
                   <ComparisonSaveBar

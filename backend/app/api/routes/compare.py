@@ -31,7 +31,14 @@ async def compare_documents(
             detail="Comparison cancelled by user."
         )
     except Exception as exc:
-        logger.exception("Comparison failed:")
+        error_msg = str(exc).lower()
+        if any(kw in error_msg for kw in ("connecttimeout", "connecterror", "connection", "qdrant", "responsehandlingexception", "readerror", "readtimeout")):
+            logger.error("Comparison failed — Qdrant unreachable: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="The search engine (Qdrant) is not reachable. Please ensure Qdrant is running and try again.",
+            )
+        logger.error("Comparison failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Comparison failed.",

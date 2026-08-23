@@ -19,13 +19,15 @@ alembic
 # Optional helper for mysql sync operations / cryptography authentication support
 cryptography
 
-# --- PDF Processing & OCR Fallback ---
+# --- PDF Processing & OCR ---
+# CPU-only deployment. For GPU support, replace paddlepaddle with paddlepaddle-gpu
+# and install torch with CUDA wheels. See PaddleOCR/EasyOCR docs for details.
 pymupdf
-paddleocr
-# Note: For GPU support, replace with paddlepaddle-gpu if CUDA is available
-paddlepaddle-gpu
-# EasyOCR: PyTorch-based fallback when PaddlePaddle is incompatible (e.g. Python 3.12)
+paddlepaddle==3.3.1
+paddleocr==3.7.0
 easyocr
+pillow
+numpy
 
 # --- Machine Learning, Embeddings & LLM ---
 # Note: For CUDA-enabled environments, ensure PyTorch is installed with appropriate CUDA wheels

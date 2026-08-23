@@ -1,5 +1,6 @@
 from qdrant_client import AsyncQdrantClient
 from app.core.config import settings
+from app.repositories.qdrant_repository import QDRANT_TIMEOUT
 
 # Global cached AsyncQdrantClient instance for connection pooling and efficiency
 _qdrant_client_instance = None
@@ -16,6 +17,6 @@ async def get_qdrant_client() -> AsyncQdrantClient:
         _qdrant_client_instance = AsyncQdrantClient(
             url=settings.QDRANT_URL,
             api_key=api_key,
-            timeout=60.0,
+            timeout=QDRANT_TIMEOUT,
         )
     return _qdrant_client_instance

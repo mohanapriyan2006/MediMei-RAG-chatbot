@@ -1,113 +1,387 @@
-try:
-    import torch
-except ImportError:
-    pass
-
-import logging
+# ---------------------------------------------------------------------------
+# MKLDNN / oneDNN flags MUST be set before PaddlePaddle is imported.
+# PaddleOCR 3.x + PaddlePaddle 3.x on CPU crashes with
+#   NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support
+#   [pir::ArrayAttribute<pir::DoubleAttribute>]
+# when oneDNN is enabled.  Setting these env vars at the very top of this
+# module (which is the first place paddle is transitively imported) prevents
+# the crash.  Do NOT move this block below any paddle/torch import.
+# ---------------------------------------------------------------------------
 import os
-from pathlib import Path
-from typing import Any, Dict, Optional
 
-# Disable MKLDNN CPU execution flags to prevent PIR oneDNN incompatibilities
-os.environ["FLAGS_use_mkldnn"] = "0"
-os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "0"
+os.environ.setdefault("FLAGS_use_mkldnn", "0")
+os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "0")
+
+import io
+import logging
+import re
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DPI = 300
 
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif")
+
 _ocr_service_instance: Optional["OCRService"] = None
 
 
 def get_ocr_service(use_gpu: bool = False, dpi: int = DEFAULT_DPI) -> "OCRService":
-    """Return a cached OCRService singleton so the OCR model is loaded once."""
+    """Return a cached OCRService singleton so OCR models are loaded once."""
     global _ocr_service_instance
     if _ocr_service_instance is None:
         _ocr_service_instance = OCRService(use_gpu=use_gpu, dpi=dpi)
     return _ocr_service_instance
 
 
-class OCRService:
-    """OCR fallback service.
+def _reset_ocr_service():
+    """Reset the singleton — used by tests."""
+    global _ocr_service_instance
+    _ocr_service_instance = None
 
-    Initialization priority:
-      1. PaddleOCR (if paddlepaddle + paddleocr are importable)
-      2. EasyOCR  (if easyocr is importable — uses PyTorch)
-      3. Stub     (returns None text so callers keep PyMuPDF output)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _is_cuda_available() -> bool:
+    """Return True only when *both* torch and paddle report CUDA availability."""
+    torch_cuda = False
+    try:
+        import torch
+        torch_cuda = torch.cuda.is_available()
+    except Exception:
+        pass
+
+    paddle_cuda = False
+    try:
+        import paddle
+        paddle_cuda = paddle.device.is_compiled_with_cuda()
+    except Exception:
+        pass
+
+    return torch_cuda or paddle_cuda
+
+
+def _normalize_ocr_text(text: str) -> str:
+    """Light whitespace normalisation that preserves medical values.
+
+    - Collapse runs of spaces/tabs into a single space.
+    - Strip trailing whitespace per line.
+    - Drop empty lines.
+    - Preserve numbers, units (mg, mcg, mL, %, IU), dosage values, and
+      line breaks exactly as recognised.
     """
+    if not text:
+        return ""
+    lines = []
+    for raw_line in text.splitlines():
+        line = re.sub(r"[ \t]+", " ", raw_line).strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
 
-    # Which engine is active: "paddleocr" | "easyocr" | None
-    _engine: Optional[str] = None
+
+# ---------------------------------------------------------------------------
+# OCR service
+# ---------------------------------------------------------------------------
+
+class OCRService:
+    """Robust OCR engine abstraction.
+
+    Priority: PaddleOCR → EasyOCR → graceful unavailable state.
+
+    The service is designed so that *no* OCR engine being available never
+    crashes the calling pipeline.  Every public method returns a consistent
+    result dict::
+
+        {
+            "text": "...",
+            "confidence": 0.0,
+            "extraction_method": "paddleocr" | "easyocr" | "ocr_failed" | "ocr_unavailable",
+            "success": True | False,
+        }
+    """
 
     def __init__(self, use_gpu: bool = False, dpi: int = DEFAULT_DPI):
         self.use_gpu = use_gpu
         self.dpi = dpi
-        self._ocr = None       # PaddleOCR instance
-        self._easyocr = None   # EasyOCR Reader instance
-        self._engine = None
+        self._engine: Optional[str] = None
+        self._ocr: Any = None        # PaddleOCR instance
+        self._easyocr: Any = None    # EasyOCR Reader instance
 
-        # --- Attempt 1: PaddleOCR ---
+        cuda_available = _is_cuda_available()
+        effective_gpu = use_gpu and cuda_available
+        if use_gpu and not cuda_available:
+            logger.info(
+                "GPU requested but CUDA not available; falling back to CPU for OCR."
+            )
+
+        self._init_paddleocr(effective_gpu)
+        if self._engine is None:
+            self._init_easyocr(effective_gpu)
+
+        if self._engine is not None:
+            logger.info("OCR engine initialized: %s", self._engine)
+        else:
+            logger.warning("OCR engine unavailable — no OCR backend could be initialized.")
+
+    # ------------------------------------------------------------------
+    # Engine initialisation
+    # ------------------------------------------------------------------
+
+    def _init_paddleocr(self, use_gpu: bool) -> None:
+        """Try to initialise PaddleOCR (3.x then legacy kwargs)."""
         try:
             import paddle
             from paddleocr import PaddleOCR
+        except Exception as exc:
+            logger.warning("PaddleOCR import failed: %s", exc)
+            return
 
-            has_gpu = paddle.device.is_compiled_with_cuda()
-            device_str = "gpu" if (use_gpu and has_gpu) else "cpu"
+        paddle_gpu = use_gpu and paddle.device.is_compiled_with_cuda()
+        device_str = "gpu" if paddle_gpu else "cpu"
 
-            try:
-                # PaddleOCR 3.x style initialization
-                self._ocr = PaddleOCR(
-                    lang="en",
-                    device=device_str,
-                )
-                self._engine = "paddleocr"
-                logger.info("PaddleOCR 3.x initialized successfully with device=%s", device_str)
-            except Exception as inner_exc:
-                logger.debug("PaddleOCR 3.x initialization failed: %s. Trying legacy style.", inner_exc)
-                # Fallback to legacy argument style
-                self._ocr = PaddleOCR(
-                    use_angle_cls=True,
-                    lang="en",
-                    use_gpu=use_gpu and has_gpu,
-                    show_log=False,
-                )
-                self._engine = "paddleocr"
-                logger.info("PaddleOCR legacy initialized successfully")
-        except Exception as paddle_exc:
-            logger.warning(
-                "PaddleOCR not available: %s. Trying EasyOCR fallback.",
-                paddle_exc,
+        # --- PaddleOCR 3.x style ---
+        try:
+            self._ocr = PaddleOCR(lang="en", device=device_str)
+            self._engine = "paddleocr"
+            logger.info("PaddleOCR 3.x initialized with device=%s", device_str)
+            return
+        except Exception as exc:
+            logger.warning("PaddleOCR 3.x initialization failed (device=%s): %s", device_str, exc)
+
+        # --- Legacy style ---
+        try:
+            self._ocr = PaddleOCR(
+                use_angle_cls=True,
+                lang="en",
+                use_gpu=paddle_gpu,
+                show_log=False,
             )
+            self._engine = "paddleocr"
+            logger.info("PaddleOCR legacy initialized with use_gpu=%s", paddle_gpu)
+            return
+        except Exception as exc:
+            logger.warning("PaddleOCR legacy initialization failed: %s", exc)
 
-            # --- Attempt 2: EasyOCR ---
+        # --- CPU retry when GPU was requested ---
+        if paddle_gpu:
             try:
-                import easyocr
+                self._ocr = PaddleOCR(lang="en", device="cpu")
+                self._engine = "paddleocr"
+                logger.info("PaddleOCR initialized on CPU after GPU failure.")
+            except Exception as exc:
+                logger.warning("PaddleOCR CPU fallback initialization failed: %s", exc)
 
-                gpu_available = use_gpu and torch.cuda.is_available()
-                self._easyocr = easyocr.Reader(
-                    ["en"],
-                    gpu=gpu_available,
-                    verbose=False,
-                )
-                self._engine = "easyocr"
-                logger.info(
-                    "EasyOCR initialized successfully (gpu=%s)", gpu_available
-                )
-            except Exception as easy_exc:
-                logger.warning(
-                    "EasyOCR also not available: %s. OCR fallback will return stub results.",
-                    easy_exc,
-                )
+    def _init_easyocr(self, use_gpu: bool) -> None:
+        """Try to initialise EasyOCR as a fallback."""
+        try:
+            import easyocr
+        except Exception as exc:
+            logger.warning("EasyOCR import failed: %s", exc)
+            return
 
-    def _render_page(self, page, dpi: Optional[int] = None) -> Any:
-        """Render a fitz page to a PIL Image at the requested DPI."""
+        try:
+            self._easyocr = easyocr.Reader(["en"], gpu=use_gpu)
+            self._engine = "easyocr"
+            logger.info("EasyOCR initialized with gpu=%s", use_gpu)
+        except Exception as exc:
+            logger.warning("EasyOCR initialization failed (gpu=%s): %s", use_gpu, exc)
+            if use_gpu:
+                try:
+                    self._easyocr = easyocr.Reader(["en"], gpu=False)
+                    self._engine = "easyocr"
+                    logger.info("EasyOCR initialized on CPU after GPU failure.")
+                except Exception as exc2:
+                    logger.warning("EasyOCR CPU fallback initialization failed: %s", exc2)
+
+    # ------------------------------------------------------------------
+    # Public properties
+    # ------------------------------------------------------------------
+
+    @property
+    def engine(self) -> Optional[str]:
+        return self._engine
+
+    @property
+    def available(self) -> bool:
+        return self._engine is not None
+
+    # ------------------------------------------------------------------
+    # Result helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _success_result(text: str, confidence: float, method: str) -> Dict[str, Any]:
+        cleaned = _normalize_ocr_text(text)
+        return {
+            "text": cleaned,
+            "confidence": round(float(confidence), 4) if confidence is not None else 0.0,
+            "extraction_method": method,
+            "success": bool(cleaned),
+        }
+
+    @staticmethod
+    def _fail_result(method: str = "ocr_failed") -> Dict[str, Any]:
+        return {"text": "", "confidence": 0.0, "extraction_method": method, "success": False}
+
+    @staticmethod
+    def _unavailable_result() -> Dict[str, Any]:
+        return {"text": "", "confidence": 0.0, "extraction_method": "ocr_unavailable", "success": False}
+
+    # ------------------------------------------------------------------
+    # PDF page rendering
+    # ------------------------------------------------------------------
+
+    def _render_page(self, page: Any, dpi: Optional[int] = None) -> Any:
+        """Render a PyMuPDF page to a PIL RGB Image at the given DPI.
+
+        Uses ``get_pixmap(alpha=False)`` then converts via PNG bytes to avoid
+        colourspace issues (e.g. CMYK, grey-scale) that break
+        ``Image.frombytes``.
+        """
         if dpi is None:
             dpi = self.dpi
-        # fitz matrix: 72 dpi is the PDF base unit.
-        mat = page.get_pixmap(dpi=dpi)
         from PIL import Image
 
-        return Image.frombytes("RGB", [mat.width, mat.height], mat.samples)
+        pix = page.get_pixmap(dpi=dpi, alpha=False)
+        png_bytes = pix.tobytes("png")
+        return Image.open(io.BytesIO(png_bytes)).convert("RGB")
+
+    # ------------------------------------------------------------------
+    # PaddleOCR runners
+    # ------------------------------------------------------------------
+
+    def _run_paddleocr(self, image: Any) -> Dict[str, Any]:
+        """Run PaddleOCR on a PIL Image / numpy array."""
+        if self._ocr is None:
+            return self._unavailable_result()
+        try:
+            import numpy as np
+
+            if hasattr(image, "convert"):
+                arr = np.array(image)
+            else:
+                arr = image
+
+            if hasattr(self._ocr, "predict"):
+                result = self._ocr.predict(arr)
+            else:
+                result = self._ocr.ocr(arr, cls=True, max_side_limit=5000)
+
+            return self._parse_paddle_result(list(result) if result is not None else [])
+        except Exception as exc:
+            logger.warning("PaddleOCR failed: %s", exc)
+            return self._fail_result("ocr_failed")
+
+    def _run_paddleocr_path(self, path: str) -> Dict[str, Any]:
+        """Run PaddleOCR on a file path."""
+        if self._ocr is None:
+            return self._unavailable_result()
+        try:
+            if hasattr(self._ocr, "predict"):
+                result = self._ocr.predict(path)
+            else:
+                result = self._ocr.ocr(path, cls=True, max_side_limit=5000)
+            return self._parse_paddle_result(list(result) if result is not None else [])
+        except Exception as exc:
+            logger.warning("PaddleOCR failed on %s: %s", path, exc)
+            return self._fail_result("ocr_failed")
+
+    def _parse_paddle_result(self, result: list) -> Dict[str, Any]:
+        """Defensively parse PaddleOCR 3.x dict or legacy nested-list output."""
+        if not result:
+            return self._success_result("", 0.0, "paddleocr")
+
+        first = result[0]
+
+        # --- PaddleOCR 3.x dict style ---
+        if isinstance(first, dict):
+            lines = first.get("rec_texts", [])
+            confidences = first.get("rec_scores", [])
+            if not lines:
+                return self._success_result("", 0.0, "paddleocr")
+            text = "\n".join(str(l) for l in lines)
+            avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
+            return self._success_result(text, avg_conf, "paddleocr")
+
+        # --- Legacy nested-list style: [[[bbox, (text, conf)], ...]] ---
+        try:
+            if not first:
+                return self._success_result("", 0.0, "paddleocr")
+            lines = []
+            confidences = []
+            for entry in first:
+                if not entry:
+                    continue
+                if isinstance(entry, (list, tuple)) and len(entry) == 2:
+                    _bbox, text_tuple = entry
+                    if isinstance(text_tuple, (list, tuple)) and len(text_tuple) == 2:
+                        text, conf = text_tuple
+                        lines.append(str(text))
+                        confidences.append(float(conf))
+            text = "\n".join(lines)
+            avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
+            return self._success_result(text, avg_conf, "paddleocr")
+        except Exception as exc:
+            logger.error("Failed to parse PaddleOCR legacy result: %s", exc)
+            return self._success_result("", 0.0, "paddleocr")
+
+    # ------------------------------------------------------------------
+    # EasyOCR runners
+    # ------------------------------------------------------------------
+
+    def _run_easyocr(self, image: Any) -> Dict[str, Any]:
+        """Run EasyOCR on a PIL Image / numpy array."""
+        if self._easyocr is None:
+            return self._unavailable_result()
+        try:
+            import numpy as np
+
+            if hasattr(image, "convert"):
+                arr = np.array(image)
+            else:
+                arr = image
+            result = self._easyocr.readtext(arr)
+            return self._parse_easyocr_result(result)
+        except Exception as exc:
+            logger.warning("EasyOCR failed: %s", exc)
+            return self._fail_result("ocr_failed")
+
+    def _run_easyocr_path(self, path: str) -> Dict[str, Any]:
+        """Run EasyOCR on a file path."""
+        if self._easyocr is None:
+            return self._unavailable_result()
+        try:
+            result = self._easyocr.readtext(path)
+            return self._parse_easyocr_result(result)
+        except Exception as exc:
+            logger.warning("EasyOCR failed on %s: %s", path, exc)
+            return self._fail_result("ocr_failed")
+
+    def _parse_easyocr_result(self, result: list) -> Dict[str, Any]:
+        """Parse EasyOCR ``[(bbox, text, confidence), ...]`` output."""
+        if not result:
+            return self._success_result("", 0.0, "easyocr")
+        lines = []
+        confidences = []
+        for entry in result:
+            if not entry or len(entry) < 3:
+                continue
+            text = entry[1]
+            conf = entry[2]
+            if text:
+                lines.append(str(text))
+                confidences.append(float(conf))
+        text = "\n".join(lines)
+        avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
+        return self._success_result(text, avg_conf, "easyocr")
+
+    # ------------------------------------------------------------------
+    # Public OCR methods
+    # ------------------------------------------------------------------
 
     def ocr_page(
         self,
@@ -115,164 +389,82 @@ class OCRService:
         page_no: int,
         document_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Run OCR on a single fitz page and return text + confidence."""
+        """Run OCR on a single PyMuPDF page, with PaddleOCR→EasyOCR fallback."""
         if self._engine is None:
-            logger.warning(
-                "OCR stub used for document_id=%s page=%s", document_id, page_no
-            )
-            return {
-                "text": None,
-                "confidence": None,
-                "extraction_method": "ocr_unavailable",
-            }
+            logger.warning("OCR unavailable for document_id=%s page=%s", document_id, page_no)
+            return self._unavailable_result()
+
+        logger.info("Processing image page %s (document %s) with %s", page_no, document_id, self._engine)
 
         try:
-            import numpy as np
-
             image = self._render_page(page)
-            image_np = np.array(image)
-
-            if self._engine == "paddleocr":
-                return self._run_paddleocr(image_np)
-            else:
-                return self._run_easyocr(image_np)
         except Exception as exc:
-            logger.warning("OCR failed on page %s: %s", page_no, exc)
-            return {
-                "text": None,
-                "confidence": None,
-                "extraction_method": f"{self._engine}_failed",
-            }
+            logger.warning("Failed to render page %s: %s", page_no, exc)
+            return self._fail_result("ocr_failed")
 
-    def ocr_image(self, image_path: Path) -> Dict[str, Any]:
-        """OCR an image file directly."""
+        try:
+            if self._engine == "paddleocr":
+                result = self._run_paddleocr(image)
+                if result["success"]:
+                    logger.info("OCR completed for page %s. Confidence: %s", page_no, result["confidence"])
+                    return result
+                logger.warning("PaddleOCR returned no text for page %s; trying EasyOCR.", page_no)
+                if self._easyocr is not None:
+                    result = self._run_easyocr(image)
+                    if result["success"]:
+                        logger.info("EasyOCR fallback succeeded for page %s. Confidence: %s", page_no, result["confidence"])
+                        return result
+                logger.warning("OCR failed for page %s; retaining native text if available.", page_no)
+                return self._fail_result("ocr_failed")
+
+            if self._engine == "easyocr":
+                result = self._run_easyocr(image)
+                if result["success"]:
+                    logger.info("OCR completed for page %s. Confidence: %s", page_no, result["confidence"])
+                    return result
+                logger.warning("EasyOCR returned no text for page %s.", page_no)
+                return self._fail_result("ocr_failed")
+        except Exception as exc:
+            logger.warning("OCR engine raised exception for page %s: %s", page_no, exc)
+            return self._fail_result("ocr_failed")
+
+        return self._unavailable_result()
+
+    def ocr_image(self, image_path: Union[str, Path]) -> Dict[str, Any]:
+        """OCR a standalone image file (PNG, JPG, JPEG, WEBP, BMP, TIFF, TIF)."""
+        path = str(image_path)
+
         if self._engine is None:
-            return {
-                "text": None,
-                "confidence": None,
-                "extraction_method": "ocr_unavailable",
-            }
+            logger.warning("OCR unavailable for image %s", path)
+            return self._unavailable_result()
 
-        try:
-            if self._engine == "paddleocr":
-                return self._run_paddleocr_path(str(image_path))
-            else:
-                return self._run_easyocr_path(str(image_path))
-        except Exception as exc:
-            logger.warning("OCR failed on image %s: %s", image_path, exc)
-            return {
-                "text": None,
-                "confidence": None,
-                "extraction_method": f"{self._engine}_failed",
-            }
+        if not os.path.isfile(path):
+            logger.error("Image file not found: %s", path)
+            return self._fail_result("ocr_failed")
 
-    # ------------------------------------------------------------------
-    # PaddleOCR runners
-    # ------------------------------------------------------------------
-    def _run_paddleocr(self, image_np) -> Dict[str, Any]:
-        if hasattr(self._ocr, "predict"):
-            result = self._ocr.predict(image_np)
-        else:
-            result = self._ocr.ocr(image_np, cls=True, max_side_limit=5000)
-        return self._parse_paddle_result(list(result) if result is not None else [])
+        logger.info("Processing image: %s with %s", path, self._engine)
 
-    def _run_paddleocr_path(self, path: str) -> Dict[str, Any]:
-        if hasattr(self._ocr, "predict"):
-            result = self._ocr.predict(path)
-        else:
-            result = self._ocr.ocr(path, cls=True, max_side_limit=5000)
-        return self._parse_paddle_result(list(result) if result is not None else [])
+        if self._engine == "paddleocr":
+            result = self._run_paddleocr_path(path)
+            if result["success"]:
+                logger.info("OCR completed for image %s. Confidence: %s", path, result["confidence"])
+                return result
+            logger.warning("PaddleOCR returned no text for %s; trying EasyOCR.", path)
+            if self._easyocr is not None:
+                result = self._run_easyocr_path(path)
+                if result["success"]:
+                    logger.info("EasyOCR fallback succeeded for %s. Confidence: %s", path, result["confidence"])
+                    return result
+            logger.warning("OCR failed for image %s.", path)
+            return self._fail_result("ocr_failed")
 
-    # ------------------------------------------------------------------
-    # EasyOCR runners
-    # ------------------------------------------------------------------
-    def _run_easyocr(self, image_np) -> Dict[str, Any]:
-        results = self._easyocr.readtext(image_np)
-        return self._parse_easyocr_result(results)
+        if self._engine == "easyocr":
+            result = self._run_easyocr_path(path)
+            if result["success"]:
+                logger.info("OCR completed for image %s. Confidence: %s", path, result["confidence"])
+                return result
+            logger.warning("EasyOCR returned no text for %s.", path)
+            return self._fail_result("ocr_failed")
 
-    def _run_easyocr_path(self, path: str) -> Dict[str, Any]:
-        results = self._easyocr.readtext(path)
-        return self._parse_easyocr_result(results)
+        return self._unavailable_result()
 
-    # ------------------------------------------------------------------
-    # Result parsers
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _parse_easyocr_result(results) -> Dict[str, Any]:
-        """Convert EasyOCR results [(bbox, text, confidence), ...] into a clean dict."""
-        if not results:
-            return {
-                "text": "",
-                "confidence": 0.0,
-                "extraction_method": "easyocr",
-            }
-
-        lines = []
-        confidences = []
-        for bbox, text, conf in results:
-            lines.append(text)
-            confidences.append(conf)
-
-        combined_text = "\n".join(lines)
-        avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
-        return {
-            "text": combined_text,
-            "confidence": round(avg_conf, 4),
-            "extraction_method": "easyocr",
-        }
-
-    @staticmethod
-    def _parse_paddle_result(result) -> Dict[str, Any]:
-        """Convert PaddleOCR result into a clean dict."""
-        if not result:
-            return {
-                "text": "",
-                "confidence": 0.0,
-                "extraction_method": "paddleocr",
-            }
-
-        # PaddleOCR 3.x (paddlex-based) returns a list of dictionaries
-        if isinstance(result, list) and len(result) > 0 and isinstance(result[0], dict):
-            lines = result[0].get("rec_texts", [])
-            confidences = result[0].get("rec_scores", [])
-            text = "\n".join(lines)
-            avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
-            return {
-                "text": text,
-                "confidence": round(avg_conf, 4),
-                "extraction_method": "paddleocr",
-            }
-
-        # Legacy PaddleOCR format [[[bbox, (text, confidence)], ...]]
-        try:
-            if not result[0]:
-                return {
-                    "text": "",
-                    "confidence": 0.0,
-                    "extraction_method": "paddleocr",
-                }
-            lines = []
-            confidences = []
-            for line in result[0]:
-                if not line:
-                    continue
-                if isinstance(line, (list, tuple)) and len(line) == 2:
-                    bbox, text_tuple = line
-                    if isinstance(text_tuple, (list, tuple)) and len(text_tuple) == 2:
-                        text, conf = text_tuple
-                        lines.append(text)
-                        confidences.append(conf)
-            text = "\n".join(lines)
-            avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
-            return {
-                "text": text,
-                "confidence": round(avg_conf, 4),
-                "extraction_method": "paddleocr",
-            }
-        except Exception as exc:
-            logger.error("Failed to parse legacy OCR result structure: %s", exc)
-            return {
-                "text": "",
-                "confidence": 0.0,
-                "extraction_method": "paddleocr",
-            }

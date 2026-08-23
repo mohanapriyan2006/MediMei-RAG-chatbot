@@ -46,6 +46,8 @@ class IndexerService:
             "extraction_method": chunk.get("extraction_method"),
             "version": chunk.get("version"),
             "text_hash": text_hash,
+            "quality_score": chunk.get("quality_score", 1.0),
+            "ocr_confidence": chunk.get("ocr_confidence"),
             "embedding": embedding,
         }
 
