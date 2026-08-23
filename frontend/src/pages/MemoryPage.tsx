@@ -16,13 +16,12 @@ import {
 import { ChatLayout } from '../components/layout/ChatLayout'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  getMemoriesRequest,
-  createMemoryRequest,
-  deleteMemoryRequest,
-  clearMemoriesRequest,
-  toggleMemoryRequest,
-} from '../api/memories'
-import type { UserMemory } from '../api/memories'
+  listMemories,
+  createMemory,
+  deleteMemory,
+  clearMemories,
+} from '../services/memoryStore'
+import type { UserMemory } from '../services/memoryStore'
 import { MarkdownResponse } from '../components/common/MarkdownResponse'
 import { DeleteConfirmModal } from '../components/common/DeleteConfirmModal'
 import { toast } from 'sonner'
@@ -245,7 +244,7 @@ export default function MemoryPage() {
   const fetchMemories = useCallback(async () => {
     try {
       setLoading(true)
-      const data = await getMemoriesRequest()
+      const data = listMemories()
       setMemories(data)
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to retrieve memories'
@@ -265,7 +264,6 @@ export default function MemoryPage() {
     const nextState = !user?.memory_enabled
     setToggling(true)
     try {
-      await toggleMemoryRequest(nextState)
       updateUser({ memory_enabled: nextState })
       toast.success(nextState ? 'AI Memory enabled' : 'AI Memory paused')
     } catch (err: unknown) {
@@ -284,7 +282,7 @@ export default function MemoryPage() {
 
     setSubmitting(true)
     try {
-      const created = await createMemoryRequest(content)
+      const created = createMemory(content)
       setMemories((prev) => [created, ...prev])
       setNewMemoryText('')
       toast.success('Preference added to memory')
@@ -301,7 +299,7 @@ export default function MemoryPage() {
     if (!pendingDeleteMemory) return
     setDeleting(true)
     try {
-      await deleteMemoryRequest(pendingDeleteMemory.memory_id)
+      deleteMemory(pendingDeleteMemory.memory_id)
       setMemories((prev) => prev.filter((m) => m.memory_id !== pendingDeleteMemory.memory_id))
       toast.success('Memory deleted')
       setPendingDeleteMemory(null)
@@ -317,7 +315,7 @@ export default function MemoryPage() {
   const handleConfirmClearAll = async () => {
     setDeleting(true)
     try {
-      await clearMemoriesRequest()
+      clearMemories()
       setMemories([])
       setShowClearConfirmModal(false)
       toast.success('All memories cleared')

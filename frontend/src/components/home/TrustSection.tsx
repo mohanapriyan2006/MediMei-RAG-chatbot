@@ -45,7 +45,7 @@ export function TrustSection() {
                 Dense vector chunking preserves document structure, enabling clinicians to cross-reference statements with the exact physical page.
               </p>
             </div>
-            <Link to="/drugs" className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:text-accent transition-colors">
+            <Link to="/documents" className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:text-accent transition-colors">
               <span>Browse labels</span>
               <ChevronRight className="h-3.5 w-3.5" />
             </Link>

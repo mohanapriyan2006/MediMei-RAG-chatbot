@@ -39,7 +39,7 @@ export function HeroSection() {
                 </Link>
 
                 <Link
-                  to="/drugs"
+                  to="/documents"
                   className="inline-flex items-center gap-2 rounded-pill border border-white/25 bg-white/8 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur-sm transition-all duration-200 hover:bg-white/15 hover:border-white/40"
                 >
                   <BookOpen className="h-4 w-4" />

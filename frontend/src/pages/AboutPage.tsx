@@ -32,11 +32,11 @@ const stack = [
 
 const team = [
   { name: 'Mohanapriyan M', role: 'Full Stack Developer | AI & RAG', links: { portfolio: 'https://mohanapriyan.dev', website: "https://mohanapriyan.netlify.app/", linkedin: 'https://linkedin.com/in/mohanapriyan-m2006' } },
-  { name: 'Mithilesh ES', role: 'Developer | AI & Application Engineering' },
-  { name: 'Anand VB', role: 'Developer | Application Engineering' },
-  { name: 'Gokulkrishnan M', role: 'Developer | AI & Backend Engineering' },
-  { name: 'Harees Ahamed K', role: 'Developer | Application Engineering' },
-  { name: 'Kanishkar P', role: 'Developer | AI & Full-Stack Engineering' },
+  { name: 'Mithilesh ES', role: 'Backend Developer | AI & Application Engineering' },
+  { name: 'Anand VB', role: 'Frontend Developer' },
+  { name: 'Gokulkrishnan M', role: 'Developer' },
+  { name: 'Harees Ahamed K', role: 'Developer' },
+  { name: 'Kanishkar P', role: 'Developer' },
 ]
 
 export default function AboutPage() {

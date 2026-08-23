@@ -26,7 +26,7 @@ export function FinalCtaSection() {
                 <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
-                to="/drugs"
+                to="/documents"
                 className="inline-flex items-center gap-2 rounded-pill border border-white/25 bg-white/8 px-6 py-3.5 text-sm font-semibold text-white hover:bg-white/15 transition-all duration-200"
               >
                 <BookOpen className="h-4 w-4" />
