@@ -17,7 +17,7 @@ export function DrugCategoriesSection() {
             </h2>
           </div>
           <Link
-            to="/drugs"
+            to="/documents"
             className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-accent transition-colors"
           >
             <span>View Full Drug Library</span>
