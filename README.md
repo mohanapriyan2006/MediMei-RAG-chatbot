@@ -1,5 +1,8 @@
 <div align="center">
 
+
+<img alt="logo" src="./frontend/public/logo.png" height=100 />
+
 # MediMei
 
 ## Evidence-First Drug Information Assistant
@@ -71,6 +74,95 @@ MediMei is built as a full-stack RAG pipeline with a separate frontend-only prev
 ### Full-Stack Pipeline
 
 Ingestion → Extraction/OCR → Chunking → Embeddings → Vector Retrieval → Context Building → AI Generation → Citation Mapping
+
+```mermaid
+flowchart TD
+
+subgraph group_frontend["React SPA"]
+  node_spa["React application<br/>Vite SPA<br/>[App.tsx]"]
+  node_client_state["Client state<br/>contexts<br/>[ChatContext.tsx]"]
+  node_api_client["API client<br/>HTTP client<br/>[client.ts]"]
+  node_frontend_entry["Frontend entry<br/>browser entry<br/>[main.tsx]"]
+end
+
+subgraph group_backend["FastAPI Backend"]
+  node_fastapi_app["FastAPI application<br/>composition root<br/>[main.py]"]
+  node_api_router["API router<br/>HTTP boundary<br/>[router.py]"]
+  node_chat_api["Chat endpoint<br/>route handler<br/>[chat.py]"]
+  node_ingestion_pipeline["Document pipeline<br/>ingestion pipeline<br/>[pipeline.py]"]
+  node_chunker["Chunk builder<br/>chunking service<br/>[chunker.py]"]
+  node_indexer["Embedding indexer<br/>indexing service<br/>[indexer_service.py]"]
+  node_rag_service{{"RAG service<br/>answer orchestration<br/>[rag_service.py]"}}
+  node_hybrid_search["Hybrid retrieval<br/>retrieval service<br/>[hybrid_search.py]"]
+  node_grounding_validator["Grounding validation<br/>safety boundary"]
+  node_llm_client["LLM client<br/>Qwen integration<br/>[client.py]"]
+  node_comparison_service["Comparison service<br/>drug comparison"]
+  node_memory_service["Memory service<br/>conversation memory<br/>[memory_service.py]"]
+  node_task_manager["Task manager<br/>background jobs<br/>[task_manager.py]"]
+end
+
+subgraph group_data["Data &amp; AI Infrastructure"]
+  node_mysql[("MySQL<br/>relational database<br/>[database.py]")]
+  node_qdrant[("Qdrant<br/>vector database")]
+  node_uploads["Document artifacts<br/>file storage"]
+end
+
+node_frontend_entry -->|"mounts"| node_spa
+node_spa -->|"uses"| node_client_state
+node_client_state -->|"requests"| node_api_client
+node_api_client -->|"HTTP"| node_fastapi_app
+node_fastapi_app -->|"registers"| node_api_router
+node_api_router -->|"routes chat"| node_chat_api
+node_chat_api -->|"answers"| node_rag_service
+node_rag_service -->|"retrieves evidence"| node_hybrid_search
+node_hybrid_search -->|"semantic search"| node_qdrant
+node_rag_service -->|"generates answer"| node_llm_client
+node_rag_service -->|"validates output"| node_grounding_validator
+node_rag_service -->|"stores citations"| node_mysql
+node_ingestion_pipeline -->|"clean source"| node_chunker
+node_chunker -->|"metadata chunks"| node_indexer
+node_indexer -->|"upserts vectors"| node_qdrant
+node_ingestion_pipeline -->|"reads and writes"| node_uploads
+node_task_manager -->|"runs asynchronously"| node_ingestion_pipeline
+node_api_router -->|"starts and polls"| node_task_manager
+node_api_router -->|"comparison requests"| node_comparison_service
+node_comparison_service -->|"retrieves evidence"| node_hybrid_search
+node_api_router -->|"memory requests"| node_memory_service
+node_memory_service -->|"persists memory"| node_mysql
+node_ingestion_pipeline -->|"stores document state"| node_mysql
+
+click node_spa "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/frontend/src/App.tsx"
+click node_client_state "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/frontend/src/contexts/ChatContext.tsx"
+click node_api_client "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/frontend/src/api/client.ts"
+click node_frontend_entry "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/frontend/src/main.tsx"
+click node_fastapi_app "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/main.py"
+click node_api_router "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/api/router.py"
+click node_chat_api "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/api/routes/chat.py"
+click node_ingestion_pipeline "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/services/pdf/pipeline.py"
+click node_chunker "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/services/chunking/chunker.py"
+click node_indexer "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/services/retrieval/indexer_service.py"
+click node_rag_service "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/services/chat/rag_service.py"
+click node_hybrid_search "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/services/retrieval/hybrid_search.py"
+click node_grounding_validator "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/services/validation/grounding_validator.py"
+click node_llm_client "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/services/llm/client.py"
+click node_comparison_service "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/services/comparison/comparison_service.py"
+click node_memory_service "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/services/chat/memory_service.py"
+click node_task_manager "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/core/task_manager.py"
+click node_mysql "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/db/database.py"
+click node_qdrant "https://github.com/mohanapriyan2006/medimei-rag-chatbot/blob/main/backend/app/repositories/qdrant_repository.py"
+click node_uploads "https://github.com/mohanapriyan2006/medimei-rag-chatbot/tree/main/data/uploads"
+
+classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+class node_spa,node_client_state,node_api_client,node_frontend_entry toneBlue
+class node_fastapi_app,node_api_router,node_chat_api,node_ingestion_pipeline,node_chunker,node_indexer,node_rag_service,node_hybrid_search,node_grounding_validator,node_llm_client,node_comparison_service,node_memory_service,node_task_manager toneAmber
+class node_mysql,node_qdrant,node_uploads toneMint
+```
 
 ### Database Design
 
